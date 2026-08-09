@@ -1,0 +1,12 @@
+{
+  "name": "vidpilot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "VidPilot AI — personal AI video production and YouTube publishing workspace.",
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "build:backend": "npm --prefix backend run build"
+  }
+}

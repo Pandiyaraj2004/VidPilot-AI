@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens: single source of truth for color. Components must reference
+ * these Tailwind utilities (bg-surface, text-text-primary, border-border, ...)
+ * rather than hardcoding hex values, so the whole app can be retheme'd here.
+ */
+@theme inline {
+  --color-background: var(--vp-background);
+  --color-surface: var(--vp-surface);
+  --color-surface-elevated: var(--vp-surface-elevated);
+  --color-border: var(--vp-border);
+  --color-primary: var(--vp-primary);
+  --color-primary-hover: var(--vp-primary-hover);
+  --color-text-primary: var(--vp-text-primary);
+  --color-text-secondary: var(--vp-text-secondary);
+  --color-text-muted: var(--vp-text-muted);
+  --color-success: var(--vp-success);
+  --color-warning: var(--vp-warning);
+  --color-error: var(--vp-error);
+  --color-info: var(--vp-info);
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Consolas, monospace;
+}
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --vp-background: #fafafa;
+  --vp-surface: #ffffff;
+  --vp-surface-elevated: #ffffff;
+  --vp-border: #e4e4e7;
+  --vp-primary: #6366f1;
+  --vp-primary-hover: #4f46e5;
+  --vp-text-primary: #18181b;
+  --vp-text-secondary: #52525b;
+  --vp-text-muted: #a1a1aa;
+  --vp-success: #16a34a;
+  --vp-warning: #d97706;
+  --vp-error: #dc2626;
+  --vp-info: #2563eb;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --vp-background: #0a0a0f;
+  --vp-surface: #131318;
+  --vp-surface-elevated: #1c1c24;
+  --vp-border: #26262e;
+  --vp-primary: #818cf8;
+  --vp-primary-hover: #a5b4fc;
+  --vp-text-primary: #f4f4f5;
+  --vp-text-secondary: #a1a1aa;
+  --vp-text-muted: #71717a;
+  --vp-success: #22c55e;
+  --vp-warning: #f59e0b;
+  --vp-error: #ef4444;
+  --vp-info: #3b82f6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100svh;
+}
