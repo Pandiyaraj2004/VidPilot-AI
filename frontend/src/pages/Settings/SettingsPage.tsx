@@ -7,10 +7,13 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
 import { useToast } from "@/hooks/useToast";
+import { useYoutubeStatus } from "@/hooks/useYoutubeStatus";
 import { getSchedulerConfig, saveSchedulerConfig } from "@/services/scheduler/schedulerConfigService";
 import { getAppSettings, saveAppSettings } from "@/services/settings/settingsService";
+import { youtubeService } from "@/services/youtube/youtubeService";
 import { VIDEO_STYLES, type AppSettings, type IntegrationState, type SchedulerConfig } from "@/types";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 const LANGUAGE_OPTIONS = [
   { value: "en", label: "English" },
@@ -25,13 +28,120 @@ const DURATION_OPTIONS = [
   { value: 600, label: "10 minutes" },
 ];
 
+// YouTube gets its own real connection card below — not shown in this
+// generic placeholder list, which would otherwise contradict it.
 const INTEGRATIONS: IntegrationState[] = [
   { key: "gemini", label: "Gemini", configured: false },
   { key: "openrouter", label: "OpenRouter", configured: false },
   { key: "telegram", label: "Telegram", configured: false },
-  { key: "youtube", label: "YouTube", configured: false },
   { key: "firebase", label: "Firebase", configured: false },
 ];
+
+function YoutubeConnectionCard() {
+  const { showToast } = useToast();
+  const { status, loading, refetch } = useYoutubeStatus();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  // The backend redirects the whole browser back here after the real Google
+  // consent flow completes — read the outcome once, then strip it from the
+  // URL so a refresh doesn't re-show the same toast.
+  useEffect(() => {
+    const outcome = searchParams.get("youtube");
+    if (!outcome) return;
+
+    if (outcome === "connected") {
+      showToast({ variant: "success", title: "YouTube connected" });
+      refetch();
+    } else if (outcome === "denied") {
+      showToast({ variant: "error", title: "YouTube connection was cancelled." });
+    } else if (outcome === "error") {
+      const reason = searchParams.get("reason");
+      showToast({
+        variant: "error",
+        title: "Unable to connect YouTube.",
+        description: reason ? `Reason: ${reason}` : undefined,
+      });
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("youtube");
+    next.delete("reason");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per redirect, not on every searchParams identity change
+  }, []);
+
+  async function handleDisconnect() {
+    setDisconnecting(true);
+    try {
+      await youtubeService.disconnect();
+      showToast({ variant: "success", title: "YouTube disconnected" });
+      refetch();
+    } catch (err) {
+      showToast({
+        variant: "error",
+        title: "Unable to disconnect YouTube.",
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>YouTube</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading && <p className="text-sm text-text-secondary">Checking connection…</p>}
+
+        {!loading && status?.connected && status.channel && (
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              {status.channel.thumbnailUrl && (
+                <img src={status.channel.thumbnailUrl} alt="" className="h-10 w-10 rounded-full" />
+              )}
+              <div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="success">Connected</Badge>
+                </div>
+                <p className="mt-1 text-sm font-medium text-text-primary">{status.channel.title}</p>
+              </div>
+            </div>
+            <Button variant="secondary" onClick={handleDisconnect} loading={disconnecting} disabled={disconnecting}>
+              Disconnect
+            </Button>
+          </div>
+        )}
+
+        {!loading && !status?.connected && (
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <Badge variant="neutral">Not connected</Badge>
+              <p className="mt-1 text-sm text-text-secondary">
+                {status?.configured
+                  ? "Connect your YouTube channel to publish approved videos."
+                  : "Set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET on the backend before connecting."}
+              </p>
+            </div>
+            <Button
+              onClick={() => {
+                // A real full-page navigation to Google's consent screen —
+                // never a fetch(); the browser itself must follow the
+                // redirect chain out to accounts.google.com and back.
+                window.location.href = youtubeService.authUrl();
+              }}
+              disabled={!status?.configured}
+            >
+              Connect YouTube
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const { showToast } = useToast();
@@ -194,6 +304,8 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <YoutubeConnectionCard />
 
       <Card>
         <CardHeader>

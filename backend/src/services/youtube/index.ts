@@ -1,22 +1,15 @@
-export interface YouTubeUploadRequest {
-  jobId: string;
-  videoFilePath: string;
-  title: string;
-  description: string;
-  tags: string[];
-  visibility: "private" | "unlisted" | "public";
-  containsSyntheticMedia: boolean;
-}
-
-export interface YouTubeUploadResult {
-  youtubeVideoId: string;
-}
-
 /**
- * Placeholder for OAuth + videos.insert upload flow (Phase 8).
+ * Single shared YouTubeDataApiProvider instance — everything that talks to
+ * YouTube (youtubeUploadService.ts, controllers/routes) imports the same
+ * instance from here, matching the singleton pattern already used for
+ * jobRepository (services/jobs/index.ts) and telegramProvider
+ * (services/telegram/index.ts).
  */
-export class YouTubeService {
-  async upload(_request: YouTubeUploadRequest): Promise<YouTubeUploadResult> {
-    throw new Error("YouTubeService.upload() is not implemented yet. Ships in Phase 8.");
-  }
-}
+
+import { YouTubeDataApiProvider } from "./youtubeDataApiProvider.js";
+import type { YouTubeProvider } from "./youtubeProvider.js";
+
+export const youtubeProvider: YouTubeProvider = new YouTubeDataApiProvider();
+
+export type { YouTubeChannelInfo, YouTubeUploadMetadata, YouTubeProvider } from "./youtubeProvider.js";
+export { YouTubeApiError } from "./youtubeProvider.js";

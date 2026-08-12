@@ -1,27 +1,51 @@
 import { PageHeader } from "@/components/common/PageHeader";
+import { JobsTable } from "@/components/jobs/JobsTable";
+import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { Input } from "@/components/ui/Input";
+import { SkeletonTable } from "@/components/ui/LoadingState";
 import { Tabs } from "@/components/ui/Tabs";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useJobs } from "@/hooks/useJobs";
+import { ROUTES } from "@/constants/routes";
+import { getJobStatusGroup, type JobStatusGroup } from "@/types";
 import { ListVideo, Search } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-type QueueFilter = "all" | "queued" | "generating" | "rendering" | "awaiting_approval" | "approved" | "published" | "failed";
+type QueueFilter = "all" | JobStatusGroup;
 
 const FILTERS: { value: QueueFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "queued", label: "Queued" },
-  { value: "generating", label: "Generating" },
-  { value: "rendering", label: "Rendering" },
+  { value: "processing", label: "Processing" },
   { value: "awaiting_approval", label: "Awaiting Approval" },
-  { value: "approved", label: "Approved" },
   { value: "published", label: "Published" },
   { value: "failed", label: "Failed" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 export default function VideoQueuePage() {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState<QueueFilter>("all");
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput, 300);
+
+  // Filtering happens client-side over the full (capped) job list — the
+  // queue's status groups don't map 1:1 to a single backend JobStatus value,
+  // so a per-group server query isn't a good fit here (see JobStatusGroup).
+  const { jobs, loading, error, refetch } = useJobs();
+
+  const filteredJobs = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return jobs.filter((job) => {
+      if (filter !== "all" && getJobStatusGroup(job.status) !== filter) return false;
+      if (term && !job.topic.toLowerCase().includes(term) && !job.id.toLowerCase().includes(term)) return false;
+      return true;
+    });
+  }, [jobs, filter, search]);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -34,15 +58,32 @@ export default function VideoQueuePage() {
             <div className="relative w-full sm:w-64">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
               <Input
-                placeholder="Search videos…"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by topic or job ID…"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
                 className="pl-9"
               />
             </div>
           </div>
 
-          <EmptyState icon={ListVideo} title="No video jobs found." />
+          {loading && <SkeletonTable rows={4} />}
+
+          {!loading && error && <ErrorState title="Unable to load video jobs." description={error} onRetry={refetch} />}
+
+          {!loading && !error && filteredJobs.length === 0 && jobs.length === 0 && (
+            <EmptyState
+              icon={ListVideo}
+              title="No video jobs yet."
+              description="Create your first video to start your VidPilot pipeline."
+              action={<Button onClick={() => navigate(ROUTES.create)}>Create Video</Button>}
+            />
+          )}
+
+          {!loading && !error && filteredJobs.length === 0 && jobs.length > 0 && (
+            <EmptyState icon={ListVideo} title="No video jobs found." description="Try a different filter or search term." />
+          )}
+
+          {!loading && !error && filteredJobs.length > 0 && <JobsTable jobs={filteredJobs} onChanged={refetch} />}
         </CardContent>
       </Card>
     </div>

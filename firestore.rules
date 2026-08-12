@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// VidPilot AI is a single-user personal app with no client-side auth system.
+// All job reads/writes go through the backend (Firebase Admin SDK in
+// backend/src/services/jobs/firestoreJobRepository.ts), which authenticates
+// with a service account and is NOT subject to these rules. The frontend
+// never talks to Firestore directly — see README "Architecture" section.
+//
+// These rules therefore deny ALL direct client access. If that ever changes
+// (e.g. a future phase adds a client-side Firebase SDK call), replace this
+// with real auth-scoped rules before doing so — never open this up to
+// "if true" access.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

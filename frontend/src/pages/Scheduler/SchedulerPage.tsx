@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/Switch";
 import { useToast } from "@/hooks/useToast";
 import { getSchedulerConfig, saveSchedulerConfig } from "@/services/scheduler/schedulerConfigService";
 import { VIDEO_STYLES, type SchedulerConfig, type YouTubeVisibility } from "@/types";
+import { Info } from "lucide-react";
 import { useState } from "react";
 
 const DURATION_OPTIONS = [
@@ -39,15 +40,23 @@ export default function SchedulerPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Scheduler"
-        description="Automation isn't running yet — this configures what a future generation cycle will use."
+        description="Configure how a future automation cycle will behave. Nothing runs automatically yet."
       />
+
+      <div className="mb-4 flex items-start gap-3 rounded-lg border border-info/20 bg-info/10 p-4 text-sm text-info">
+        <Info className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <p className="font-medium">Automation Engine — Not active yet</p>
+          <p>The scheduler will automatically create video jobs on your configured interval in a future phase.</p>
+        </div>
+      </div>
 
       <Card>
         <CardContent className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-text-primary">Automation</p>
-              <p className="text-sm text-text-secondary">Turn on scheduled generation once it ships in Phase 9.</p>
+              <p className="text-sm text-text-secondary">Turn on scheduled generation once it ships in a future phase.</p>
             </div>
             <Switch checked={config.automationEnabled} onCheckedChange={(value) => update("automationEnabled", value)} />
           </div>

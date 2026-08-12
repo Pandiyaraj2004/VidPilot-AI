@@ -1,22 +1,41 @@
-import type { YouTubeVisibility } from "@/types";
+import { apiGet, apiPost, apiUrl } from "@/services/api/client";
 
-export interface YouTubeUploadRequest {
-  jobId: string;
-  visibility: YouTubeVisibility;
-  containsSyntheticMedia: boolean;
+export interface YouTubeChannelInfo {
+  id: string;
+  title: string;
+  thumbnailUrl: string | null;
 }
 
-export interface YouTubeConnectionInfo {
+export interface YouTubeStatus {
   connected: boolean;
+  channel: YouTubeChannelInfo | null;
+  configured: boolean;
 }
 
-/** YouTube Data API OAuth + upload placeholder — ships in Phase 8. */
+export interface YouTubeDisconnectResult {
+  connected: false;
+  channel: null;
+}
+
+/**
+ * Real backend-mediated Google OAuth + YouTube Data API (Phase 11) — no
+ * client secret or token ever reaches this module or the browser. Connecting
+ * is a real page navigation to Google's own consent screen, not a fetch()
+ * call: the backend redirects here, the user signs in and approves on
+ * Google's real page, and Google redirects back to the backend's callback,
+ * which finally redirects the browser back into this app.
+ */
 export const youtubeService = {
-  async getConnectionInfo(): Promise<YouTubeConnectionInfo> {
-    return { connected: false };
+  getStatus(): Promise<YouTubeStatus> {
+    return apiGet<YouTubeStatus>("/youtube/status");
   },
 
-  async upload(_request: YouTubeUploadRequest): Promise<{ youtubeVideoId: string }> {
-    throw new Error("YouTube upload is not connected yet. It ships in Phase 8.");
+  /** The URL to navigate the whole browser to (never fetch) in order to start the real OAuth consent flow. */
+  authUrl(): string {
+    return apiUrl("/youtube/auth");
+  },
+
+  disconnect(): Promise<YouTubeDisconnectResult> {
+    return apiPost<YouTubeDisconnectResult>("/youtube/disconnect");
   },
 };

@@ -10,3 +10,7 @@ export const ROUTES = {
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;
+
+export function jobDetailsRoute(jobId: string): string {
+  return `/jobs/${jobId}`;
+}

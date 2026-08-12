@@ -44,6 +44,10 @@ export const router = createBrowserRouter([
         path: ROUTES.settings.slice(1),
         lazy: () => import("@/pages/Settings/SettingsPage").then((m) => ({ Component: m.default })),
       },
+      {
+        path: "jobs/:jobId",
+        lazy: () => import("@/pages/JobDetails/JobDetailsPage").then((m) => ({ Component: m.default })),
+      },
       { path: "*", loader: toDashboard },
     ],
   },

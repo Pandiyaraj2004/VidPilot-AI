@@ -10,3 +10,18 @@ frontend/node_modules/
 frontend/dist/
 backend/node_modules/
 backend/dist/
+backend/data/
+
+# Firebase service account credentials — never commit these
+*firebase-adminsdk*.json
+*service-account*.json
+serviceAccountKey.json
+
+# Google OAuth client credentials downloaded from Google Cloud Console —
+# real values are extracted into backend/.env (GOOGLE_CLIENT_ID/SECRET), not
+# committed as this raw file.
+client_secret_*.json
+
+# Piper binary + voice models (large, platform-specific, downloaded by setup) and generated audio
+backend/vendor/
+backend/storage/

@@ -17,7 +17,7 @@ export interface SchedulerConfig {
 export const DEFAULT_SCHEDULER_CONFIG: SchedulerConfig = {
   automationEnabled: false,
   intervalHours: 15,
-  defaultStyle: "text",
+  defaultStyle: "explainer",
   defaultDurationSeconds: 300,
   defaultLanguage: "en",
   requireApproval: true,

@@ -1,4 +1,4 @@
-import type { Scene, VideoStyle } from "@/types";
+import type { VideoStyle } from "@/types";
 
 export interface ContentGenerationRequest {
   topic: string;
@@ -7,6 +7,16 @@ export interface ContentGenerationRequest {
   durationSeconds: number;
   language: string;
   voice: string;
+}
+
+/** Scene breakdown is a content-engine concept, not part of the core job model — defined here, not in types/video.ts. */
+export interface Scene {
+  id: number;
+  narration: string;
+  visual: string;
+  onScreenText: string;
+  emotion: string;
+  durationSeconds?: number;
 }
 
 export interface ContentGenerationResult {
