@@ -61,10 +61,34 @@ export class LocalHeuristicProvider implements ContentQualityProvider {
   }
 }
 
+const FORBIDDEN_AI_CLICHES = [
+  "did you know",
+  "in today's video",
+  "let's dive in",
+  "here are 5 amazing facts",
+  "here are five amazing facts",
+  "but wait, there's more",
+  "you won't believe",
+];
+
 export function validateContentQuality(scenes: VideoScene[], provider: ContentQualityProvider = new LocalHeuristicProvider()): QualityCheckResult {
   const issues: QualityIssue[] = [];
+  
+  // 1. Scene visual relevance check
   for (const scene of scenes) {
     issues.push(...provider.evaluateScene(scene));
+    
+    // 2. Check each scene narration for forbidden repetitive AI clichés
+    const lowerNarration = scene.narration.toLowerCase();
+    for (const cliche of FORBIDDEN_AI_CLICHES) {
+      if (lowerNarration.includes(cliche)) {
+        issues.push({
+          severity: "warn",
+          sceneId: scene.id,
+          message: `Scene narration contains repetitive AI cliché phrase "${cliche}".`,
+        });
+      }
+    }
   }
 
   const status: QualityCheckResult["status"] = issues.length > 0 ? "WARN" : "PASS";

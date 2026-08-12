@@ -5,6 +5,7 @@ export const ROUTES = {
   published: "/published",
   analytics: "/analytics",
   scheduler: "/scheduler",
+  status: "/status",
   telegram: "/telegram",
   settings: "/settings",
 } as const;

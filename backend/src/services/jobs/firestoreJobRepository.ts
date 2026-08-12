@@ -50,6 +50,7 @@ export class FirestoreJobRepository implements JobRepository {
       publishedAt: null,
       youtubeVideoId: null,
       telegramMessageId: null,
+      source: input.source || "manual",
     };
     await ref.set(job);
     return job;

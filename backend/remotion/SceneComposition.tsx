@@ -332,7 +332,6 @@ export function SceneComposition(props: SceneCompositionProps) {
             sceneRole={props.sceneRole}
           />
         </>
-      )}
     </AbsoluteFill>
   );
 }

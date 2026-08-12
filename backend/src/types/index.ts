@@ -243,10 +243,13 @@ export interface VideoScene {
   musicIntensity?: number;
   /** 2–6 concrete, narration-specific visual search phrases from the AI (e.g. "octopus anatomy diagram" rather than "ocean"). Falls back to a local heuristic derived from visualDescription/narration when absent. */
   visualKeywords?: string[];
+  /** Camera movement framing for this scene: static | push_in | pull_out | tracking | close_up | overhead | wide_shot */
+  cameraMovement?: string;
+  /** Purpose of key editorial choice in this scene */
+  editorialNote?: string;
 }
 
-/**
- * Job-level voice-generation record. Kept separate from job.status (which
+/** Job-level voice-generation record. Kept separate from job.status (which
  * moves on to later pipeline stages) so "did voice succeed and when" stays
  * visible after the job progresses — same pattern as scriptProvider/
  * scriptModel/scriptGeneratedAt outliving SCRIPT_READY.
@@ -290,6 +293,12 @@ export interface VideoContent {
   description: string;
   tags: string[];
   estimatedDuration: number;
+  /** Primary storytelling structure chosen by the AI content director */
+  storyStructure?: string;
+  /** Opening hook approach used */
+  hookType?: string;
+  /** Call to action pattern used */
+  ctaPattern?: string;
 }
 
 export interface VideoJob {
@@ -329,8 +338,9 @@ export interface VideoJob {
   /** Denormalized mirror of youtube.uploadedAt, kept in sync — same convention as approvedAt alongside approval.decidedAt. */
   publishedAt: string | null;
   /** Denormalized mirror of youtube.videoId, kept in sync — see above. */
-  youtubeVideoId: string | null;
   telegramMessageId: string | null;
+  youtubeVideoId: string | null;
+  source?: JobSource;
 }
 
 export interface CreateJobInput {
@@ -347,6 +357,7 @@ export interface CreateJobInput {
   thumbnailEnabled: boolean;
   approvalRequired: boolean;
   youtubeVisibility: YouTubeVisibility;
+  source?: JobSource;
 }
 
 export interface SchedulerConfig {
@@ -358,7 +369,16 @@ export interface SchedulerConfig {
   youtubeVisibility: YouTubeVisibility;
   lastGenerationAt: string | null;
   nextGenerationAt: string | null;
+  minDurationSeconds: number;
+  maxDurationSeconds: number;
+  languages: string[];
+  enabledVoices: string[];
+  contentCategories: ContentCategory[];
+  lastJobId: string | null;
+  updatedAt: string;
 }
+
+export type JobSource = "manual" | "scheduled";
 
 // --- Phase 9: Quality Control ---
 

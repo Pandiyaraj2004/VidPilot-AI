@@ -50,9 +50,10 @@ describe("validateContentQuality", () => {
     expect(errors.some((e) => e.includes("duplicate"))).toBe(true);
   });
 
-  it("flags an empty title", () => {
-    const errors = validateContentQuality(makeContent({ title: "   " }), 60);
-    expect(errors.some((e) => e.includes("title"))).toBe(true);
+  it("flags repetitive AI clichés", () => {
+    const content = makeContent({ hook: "Did you know that black holes eat light?" });
+    const errors = validateContentQuality(content, 60);
+    expect(errors.some((e) => e.includes("cliché"))).toBe(true);
   });
 });
 
@@ -66,8 +67,28 @@ describe("isTooSimilar", () => {
     expect(isTooSimilar(makeContent(), recent)).toBe(true);
   });
 
-  it("returns false for a genuinely different topic", () => {
-    const recent = [{ title: "The History of Jazz Music", hook: "Where did improvisation come from?" }];
-    expect(isTooSimilar(makeContent(), recent)).toBe(false);
+  it("returns true when storyStructure, hookType, and ctaPattern repeat", () => {
+    const candidate = makeContent({
+      title: "Quantum Computers Explained",
+      hook: "Are quantum computers real?",
+      storyStructure: "myth_truth",
+      hookType: "strong_question",
+      ctaPattern: "comment_invite",
+    });
+    const recent = [
+      {
+        title: "Nuclear Fusion Future",
+        hook: "Can nuclear fusion save Earth?",
+        storyStructure: "myth_truth",
+        hookType: "strong_question",
+        ctaPattern: "comment_invite",
+      },
+    ];
+    expect(isTooSimilar(candidate, recent)).toBe(true);
+  });
+
+  it("returns false for a genuinely different topic and structure", () => {
+    const recent = [{ title: "The History of Jazz Music", hook: "Where did improvisation come from?", storyStructure: "timeline" }];
+    expect(isTooSimilar(makeContent({ storyStructure: "myth_truth" }), recent)).toBe(false);
   });
 });

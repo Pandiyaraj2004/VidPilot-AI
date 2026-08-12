@@ -37,6 +37,10 @@ export const router = createBrowserRouter([
         lazy: () => import("@/pages/Scheduler/SchedulerPage").then((m) => ({ Component: m.default })),
       },
       {
+        path: ROUTES.status.slice(1),
+        lazy: () => import("@/pages/Status/StatusPage").then((m) => ({ Component: m.default })),
+      },
+      {
         path: ROUTES.telegram.slice(1),
         lazy: () => import("@/pages/Telegram/TelegramPage").then((m) => ({ Component: m.default })),
       },

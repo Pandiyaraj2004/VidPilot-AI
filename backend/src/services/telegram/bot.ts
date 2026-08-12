@@ -24,6 +24,9 @@ export class TelegramApiError extends Error {}
 
 const API_BASE = "https://api.telegram.org";
 const REQUEST_TIMEOUT_MS = 30000;
+// Video uploads can be large (up to 50 MB) and Telegram's CDN can be slow
+// — 5 minutes is a generous but necessary ceiling for real-world uploads.
+const VIDEO_UPLOAD_TIMEOUT_MS = 300000;
 // getUpdates itself blocks server-side for up to this many seconds waiting
 // for a new update (Telegram's own long-poll mechanism) — the HTTP client
 // timeout has to be comfortably longer than that or every idle poll would
@@ -97,7 +100,7 @@ export class TelegramBotProvider implements TelegramProvider {
     form.set("video", new Blob([buffer]), "video.mp4");
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS * 3); // a multi-MB upload legitimately needs more time than a plain JSON call
+    const timer = setTimeout(() => controller.abort(), VIDEO_UPLOAD_TIMEOUT_MS);
     try {
       const response = await fetch(this.apiUrl("sendVideo"), { method: "POST", body: form, signal: controller.signal });
       const parsed = (await response.json()) as TelegramApiResponse<{ message_id: number }>;
@@ -108,7 +111,7 @@ export class TelegramBotProvider implements TelegramProvider {
     } catch (err) {
       if (err instanceof TelegramApiError) throw err;
       if (err instanceof Error && err.name === "AbortError") {
-        throw new TelegramApiError(`Telegram sendVideo timed out after ${REQUEST_TIMEOUT_MS * 3}ms.`);
+      throw new TelegramApiError(`Telegram sendVideo timed out after ${VIDEO_UPLOAD_TIMEOUT_MS / 1000}s.`);
       }
       throw new TelegramApiError(`Telegram sendVideo failed: ${(err as Error).message}`);
     } finally {

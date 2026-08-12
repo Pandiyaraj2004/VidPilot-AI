@@ -8,10 +8,10 @@ import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
 import { useToast } from "@/hooks/useToast";
 import { useYoutubeStatus } from "@/hooks/useYoutubeStatus";
-import { getSchedulerConfig, saveSchedulerConfig } from "@/services/scheduler/schedulerConfigService";
+import { getAutomationState, saveSchedulerConfig } from "@/services/scheduler/schedulerConfigService";
 import { getAppSettings, saveAppSettings } from "@/services/settings/settingsService";
 import { youtubeService } from "@/services/youtube/youtubeService";
-import { VIDEO_STYLES, type AppSettings, type IntegrationState, type SchedulerConfig } from "@/types";
+import { VIDEO_STYLES, DEFAULT_SCHEDULER_CONFIG, type AppSettings, type IntegrationState, type SchedulerConfig } from "@/types";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -146,7 +146,25 @@ function YoutubeConnectionCard() {
 export default function SettingsPage() {
   const { showToast } = useToast();
   const [appSettings, setAppSettings] = useState<AppSettings>(() => getAppSettings());
-  const [schedulerConfig, setSchedulerConfig] = useState<SchedulerConfig>(() => getSchedulerConfig());
+  const [schedulerConfig, setSchedulerConfig] = useState<SchedulerConfig>(DEFAULT_SCHEDULER_CONFIG);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const state = await getAutomationState();
+        if (active) {
+          setSchedulerConfig(state.config);
+        }
+      } catch {
+        // Fallback to DEFAULT_SCHEDULER_CONFIG is already set
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function updateAppSettings<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     setAppSettings((current) => ({ ...current, [key]: value }));

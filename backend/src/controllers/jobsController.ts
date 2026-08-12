@@ -24,6 +24,20 @@ export async function listJobsHandler(req: Request, res: Response, next: NextFun
   }
 }
 
+export async function getLatestJobHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const jobs = await jobService.listJobs();
+    if (jobs.length === 0) {
+      res.status(404).json({ error: "No jobs found." });
+      return;
+    }
+    // listJobs returns jobs ordered newest-first (Firestore desc by createdAt)
+    res.json(jobs[0]);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getJobHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const job = await jobService.getJobOrThrow(req.params.id);

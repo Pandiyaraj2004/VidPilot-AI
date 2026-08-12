@@ -89,6 +89,7 @@ export class LocalJobRepository implements JobRepository {
         publishedAt: null,
         youtubeVideoId: null,
         telegramMessageId: null,
+        source: input.source || "manual",
       };
       jobs.unshift(job);
       await this.writeAll(jobs);

@@ -23,6 +23,9 @@ export const VideoSceneSchema = z.object({
   musicMood: z.string().optional(),
   // Phase 5 upgrade — concrete visual search phrases for the internet asset providers
   visualKeywords: z.array(z.string()).max(6).optional(),
+  // Human Director criteria additions
+  cameraMovement: z.string().optional(),
+  editorialNote: z.string().optional(),
 });
 
 export const VideoContentSchema = z.object({
@@ -30,10 +33,14 @@ export const VideoContentSchema = z.object({
   hook: z.string().min(1),
   introduction: z.string().min(1),
   scenes: z.array(VideoSceneSchema).min(1),
-  conclusion: z.string().min(1),
+  conclusion: z.string().default(""),
   description: z.string().min(1),
   tags: z.array(z.string().min(1)).min(1),
   estimatedDuration: z.number().positive(),
+  // Human Director criteria additions
+  storyStructure: z.string().optional(),
+  hookType: z.string().optional(),
+  ctaPattern: z.string().optional(),
 });
 
 export type VideoContentParsed = z.infer<typeof VideoContentSchema>;

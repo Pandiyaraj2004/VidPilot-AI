@@ -106,6 +106,22 @@ async function handleCallbackQuery(
     if (parsed.type === "approve") {
       const result = await jobService.approveJob(parsed.jobId, parsed.version);
       await respondToDecision(result, provider, cq.id, chatIdStr, messageId, "approved");
+      // If approved successfully, auto-trigger YouTube upload in the background
+      if (result.ok) {
+        (async () => {
+          try {
+            console.log(`[Telegram Auto-Upload] Triggering YouTube upload for approved job ${parsed.jobId}`);
+            await jobService.uploadVideoForJob(parsed.jobId);
+            await provider.sendMessage(chatIdStr, `🚀 Automatically uploaded to YouTube:\n${result.job.content?.title ?? result.job.topic}`);
+          } catch (uploadErr) {
+            console.error(`[Telegram Auto-Upload] YouTube upload failed for job ${parsed.jobId}:`, uploadErr);
+            await provider.sendMessage(
+              chatIdStr,
+              `⚠️ Auto-upload to YouTube failed for job ${result.job.content?.title ?? result.job.topic}. Reason: ${uploadErr instanceof Error ? uploadErr.message : String(uploadErr)}`
+            );
+          }
+        })();
+      }
       return;
     }
 

@@ -22,8 +22,7 @@ function hasInvalidControlCharacters(text: string): boolean {
   return false;
 }
 
-const SYNTHETIC_MEDIA_DISCLOSURE =
-  "Disclosure: this video was produced with AI-assisted narration, visuals, and/or editing (VidPilot AI). Nothing about this disclosure is hidden — see YouTube's own \"Altered or synthetic content\" label on this video.";
+// Synthetic media disclosure text is removed from the description.
 
 export interface TitleValidationResult {
   valid: boolean;
@@ -79,18 +78,7 @@ interface CreditEntry {
   text: string;
 }
 
-function collectMusicCredits(job: VideoJob): string[] {
-  const entries = new Map<string, CreditEntry>();
-  for (const scene of job.content?.scenes ?? []) {
-    const audio = scene.audio;
-    if (!audio?.musicAttributionRequired || !audio.musicTrack) continue;
-    const key = `${audio.musicTrack}|${audio.musicArtist ?? ""}`;
-    if (entries.has(key)) continue;
-    const text = audio.musicAttributionText ?? `"${audio.musicTrack}" by ${audio.musicArtist ?? "Unknown artist"} — via ${audio.musicSource ?? "unknown source"}`;
-    entries.set(key, { key, text });
-  }
-  return [...entries.values()].map((e) => e.text);
-}
+// Music credits collector is removed because music attribution is no longer included in the description.
 
 function collectVisualCredits(job: VideoJob): string[] {
   const entries = new Map<string, CreditEntry>();
@@ -109,13 +97,8 @@ export function buildYoutubeDescription(job: VideoJob): string {
   const aiDescription = job.content?.description?.trim();
   parts.push(aiDescription || job.topic);
 
-  const musicCredits = collectMusicCredits(job);
-  if (musicCredits.length > 0) parts.push(["Music", ...musicCredits].join("\n"));
-
   const visualCredits = collectVisualCredits(job);
   if (visualCredits.length > 0) parts.push(["Visual Credits", ...visualCredits].join("\n"));
-
-  parts.push(SYNTHETIC_MEDIA_DISCLOSURE);
 
   return parts.join("\n\n");
 }

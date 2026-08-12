@@ -10,6 +10,8 @@ import { config, isConfigured } from "../../config/env.js";
  * a live Firebase project; see services/jobs/index.ts.
  */
 export function isFirebaseConfigured(): boolean {
+  // Let the system use LocalJobRepository storage if Firebase resources are exhausted or unconfigured
+  if (process.env.FORCE_LOCAL_STORAGE === "true") return false;
   return isConfigured(config.firebase.projectId) && isConfigured(config.firebase.serviceAccountJson);
 }
 

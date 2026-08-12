@@ -97,7 +97,11 @@ function buildMotionTransform(motion: string, progress: number): string {
     }
     case "static":
     default:
-      return "scale(1)";
+      // Fallback to a subtle slow zoom-in (1.00 -> 1.05) to ensure stock video clips are always transformed.
+      {
+        const scale = 1.0 + 0.05 * p;
+        return `scale(${scale.toFixed(4)})`;
+      }
   }
 }
 

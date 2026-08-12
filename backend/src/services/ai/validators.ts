@@ -8,11 +8,20 @@ function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+const FORBIDDEN_AI_CLICHES = [
+  "did you know",
+  "in today's video",
+  "let's dive in",
+  "here are 5 amazing facts",
+  "here are five amazing facts",
+  "but wait, there's more",
+  "you won't believe",
+];
+
 /**
- * Content-safety checks beyond structural schema validity (section 17):
- * empty-after-trim fields, scene ordering, excessively short scenes, and
- * whether the generated duration is in the right ballpark for what was
- * requested. Returns an empty array when the content is good to save.
+ * Content-safety checks beyond structural schema validity:
+ * empty-after-trim fields, scene ordering, excessively short scenes, duration bounds,
+ * and detection of generic repetitive AI clichés.
  */
 export function validateContentQuality(content: VideoContentParsed, requestedDurationSeconds: number): string[] {
   const errors: string[] = [];
@@ -20,9 +29,16 @@ export function validateContentQuality(content: VideoContentParsed, requestedDur
   if (!content.title.trim()) errors.push("Generated title is empty.");
   if (!content.hook.trim()) errors.push("Generated hook is empty.");
   if (!content.introduction.trim()) errors.push("Generated introduction is empty.");
-  if (!content.conclusion.trim()) errors.push("Generated conclusion is empty.");
   if (!content.description.trim()) errors.push("Generated description is empty.");
   if (content.tags.filter((tag) => tag.trim()).length === 0) errors.push("No usable tags were generated.");
+
+  // Check for forbidden AI cliché phrases across hook, intro, narration
+  const fullText = `${content.hook} ${content.introduction} ${content.scenes.map((s) => s.narration).join(" ")}`.toLowerCase();
+  for (const cliche of FORBIDDEN_AI_CLICHES) {
+    if (fullText.includes(cliche)) {
+      errors.push(`Script contains repetitive AI cliché phrase: "${cliche}". Use original humanized wording.`);
+    }
+  }
 
   if (content.scenes.length === 0) {
     errors.push("No scenes were generated.");
@@ -63,6 +79,11 @@ export function validateContentQuality(content: VideoContentParsed, requestedDur
 export interface ContentFingerprint {
   title: string;
   hook: string;
+  storyStructure?: string;
+  hookType?: string;
+  ctaPattern?: string;
+  musicMood?: string;
+  visualKeywords?: string[];
 }
 
 function tokenize(text: string): Set<string> {
@@ -88,15 +109,35 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
 const SIMILARITY_THRESHOLD = 0.6;
 
 /**
- * Lightweight repetition guard (section 18) — not a plagiarism detector,
- * just a word-overlap check on title+hook against recently generated jobs.
- * A single true/false; callers regenerate once with an "avoid this" hint
- * rather than looping indefinitely.
+ * Multi-dimensional repetition guard:
+ * Checks text similarity (title/hook), story structure similarity, hook type repetition, and CTA repetition.
  */
 export function isTooSimilar(content: VideoContentParsed, recent: ContentFingerprint[]): boolean {
   const candidateTokens = tokenize(`${content.title} ${content.hook}`);
+  
   return recent.some((sample) => {
+    // 1. Text overlap check
     const sampleTokens = tokenize(`${sample.title} ${sample.hook}`);
-    return jaccardSimilarity(candidateTokens, sampleTokens) >= SIMILARITY_THRESHOLD;
+    if (jaccardSimilarity(candidateTokens, sampleTokens) >= SIMILARITY_THRESHOLD) {
+      return true;
+    }
+    
+    // 2. Structural pattern repetition check (if 2 out of structure/hookType/ctaPattern match recent job)
+    let structuralMatches = 0;
+    if (content.storyStructure && sample.storyStructure && content.storyStructure === sample.storyStructure) {
+      structuralMatches++;
+    }
+    if (content.hookType && sample.hookType && content.hookType === sample.hookType) {
+      structuralMatches++;
+    }
+    if (content.ctaPattern && sample.ctaPattern && content.ctaPattern === sample.ctaPattern) {
+      structuralMatches++;
+    }
+
+    if (structuralMatches >= 2) {
+      return true;
+    }
+
+    return false;
   });
 }

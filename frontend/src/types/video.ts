@@ -304,6 +304,28 @@ export interface ThumbnailAsset {
   error: string | null;
 }
 
+export interface VideoScene {
+  id: string;
+  order: number;
+  narration: string;
+  visualDescription: string;
+  onScreenText: string;
+  estimatedDuration: number;
+  transition?: string;
+  audio?: SceneAudio;
+  visual?: SceneVisual;
+  subtitles?: SubtitleCue[];
+  emotion?: string;
+  energy?: number;
+  sceneRole?: string;
+  highlightWords?: string[];
+  musicMood?: string;
+  musicIntensity?: number;
+  visualKeywords?: string[];
+  cameraMovement?: string;
+  editorialNote?: string;
+}
+
 export interface VideoContent {
   title: string;
   hook: string;
@@ -313,6 +335,9 @@ export interface VideoContent {
   description: string;
   tags: string[];
   estimatedDuration: number;
+  storyStructure?: string;
+  hookType?: string;
+  ctaPattern?: string;
 }
 
 export interface VoiceGenerationMetadata {

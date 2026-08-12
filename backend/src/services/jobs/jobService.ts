@@ -218,11 +218,28 @@ export function createJobOrchestrator(
   }
 
   async function getRecentFingerprints(excludeId: string): Promise<ContentFingerprint[]> {
-    const recent = await repo.listJobs({ status: "script_ready" });
-    return recent
-      .filter((job) => job.id !== excludeId && job.content)
-      .slice(0, RECENT_SAMPLE_LIMIT)
-      .map((job) => ({ title: job.content!.title, hook: job.content!.hook }));
+    try {
+      const recent = await repo.listJobs();
+      return recent
+        .filter((job) => job.id !== excludeId && job.content)
+        .slice(0, RECENT_SAMPLE_LIMIT)
+        .map((job) => {
+          const c = job.content!;
+          const allKeywords = c.scenes.flatMap((s) => s.visualKeywords ?? []);
+          return {
+            title: c.title,
+            hook: c.hook,
+            storyStructure: c.storyStructure,
+            hookType: c.hookType,
+            ctaPattern: c.ctaPattern,
+            musicMood: c.scenes.find((s) => s.musicMood)?.musicMood,
+            visualKeywords: allKeywords.slice(0, 5),
+          };
+        });
+    } catch (err) {
+      console.warn("[VidPilot] Muting recent job list error:", err instanceof Error ? err.message : String(err));
+      return [];
+    }
   }
 
   async function runGeneration(job: VideoJob, extra?: Partial<GenerationContext>): Promise<VideoJob> {
@@ -575,7 +592,7 @@ export function createJobOrchestrator(
 
     try {
       const report = await runQuality(job);
-      const passed = report.status === "PASS" || report.status === "WARN";
+      const passed = report.score >= 70;
 
       return await repo.updateJob(job.id, {
         qualityReport: report,

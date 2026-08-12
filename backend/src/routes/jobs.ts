@@ -7,6 +7,7 @@ import {
   getApprovalHandler,
   getJobHandler,
   getJobVideoHandler,
+  getLatestJobHandler,
   getSceneAudioHandler,
   getVisualAssetHandler,
   listJobsHandler,
@@ -26,6 +27,7 @@ export const jobsRouter = Router();
 
 jobsRouter.post("/jobs", createJobHandler);
 jobsRouter.get("/jobs", listJobsHandler);
+jobsRouter.get("/jobs/latest", getLatestJobHandler);
 jobsRouter.get("/jobs/:id", getJobHandler);
 jobsRouter.patch("/jobs/:id/cancel", cancelJobHandler);
 jobsRouter.patch("/jobs/:id/retry", retryJobHandler);

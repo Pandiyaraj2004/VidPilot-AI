@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   Clock,
   LayoutDashboard,
@@ -24,6 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Published Videos", path: ROUTES.published, icon: Upload },
   { label: "Analytics", path: ROUTES.analytics, icon: BarChart3 },
   { label: "Scheduler", path: ROUTES.scheduler, icon: Clock },
+  { label: "Live Status", path: ROUTES.status, icon: Activity },
   { label: "Telegram", path: ROUTES.telegram, icon: Send },
   { label: "Settings", path: ROUTES.settings, icon: Settings },
 ];

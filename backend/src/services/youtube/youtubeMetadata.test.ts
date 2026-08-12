@@ -136,11 +136,11 @@ describe("buildYoutubeDescription", () => {
     expect(description).toContain("Dive into the astonishing world of octopuses");
   });
 
-  it("includes a synthetic-media disclosure", () => {
-    expect(buildYoutubeDescription(makeJob())).toContain("Disclosure:");
+  it("does not include a synthetic-media disclosure", () => {
+    expect(buildYoutubeDescription(makeJob())).not.toContain("Disclosure:");
   });
 
-  it("includes real music attribution only when it's actually required", () => {
+  it("does not include music attribution section", () => {
     const job = makeJob();
     job.content!.scenes[0].audio = {
       status: "ready",
@@ -151,14 +151,8 @@ describe("buildYoutubeDescription", () => {
       musicAttributionText: '"Heathrow" by Slim, licensed under CC BY-SA — via Jamendo',
     };
     const description = buildYoutubeDescription(job);
-    expect(description).toContain("Music");
-    expect(description).toContain('"Heathrow" by Slim, licensed under CC BY-SA — via Jamendo');
-  });
-
-  it("omits the Music section when no scene requires attribution", () => {
-    const job = makeJob();
-    job.content!.scenes[0].audio = { status: "ready", duration: 5, musicTrack: "Some Track", musicAttributionRequired: false };
-    expect(buildYoutubeDescription(job)).not.toContain("Music\n");
+    expect(description).not.toContain("Music");
+    expect(description).not.toContain('"Heathrow" by Slim, licensed under CC BY-SA — via Jamendo');
   });
 
   it("includes real visual attribution only for assets that actually require it, never inventing it", () => {

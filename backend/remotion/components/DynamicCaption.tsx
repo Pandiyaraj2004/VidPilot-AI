@@ -83,6 +83,47 @@ function isHighlighted(word: string, highlights: string[]): boolean {
  * bug found via inspecting an actual rendered frame; removing either
  * reintroduces it.
  */
+const EMOJI_MAP: Record<string, string> = {
+  time: "⏱️",
+  gravity: "🌌",
+  space: "🚀",
+  star: "⭐",
+  starry: "⭐",
+  planet: "🪐",
+  earth: "🌍",
+  sun: "☀️",
+  black: "🕳️",
+  hole: "🕳️",
+  science: "🧪",
+  dna: "🧬",
+  brain: "🧠",
+  mind: "🧠",
+  success: "🏆",
+  dream: "💭",
+  win: "🏅",
+  gold: "🥇",
+  money: "💵",
+  cash: "💰",
+  rich: "🤑",
+  computer: "💻",
+  robot: "🤖",
+  ai: "🤖",
+  data: "📊",
+  fire: "🔥",
+  hot: "🔥",
+  light: "💡",
+  idea: "💡",
+  love: "❤️",
+  heart: "❤️",
+  water: "💧",
+  ocean: "🌊",
+  sea: "🌊",
+  world: "🗺️",
+  alert: "🚨",
+  warn: "⚠️",
+  danger: "⚠️",
+};
+
 function HighlightedLine({
   text,
   highlights,
@@ -116,9 +157,7 @@ function HighlightedLine({
         wordIndex += 1;
         const highlight = highlights.length > 0 && isHighlighted(token, highlights);
 
-        // Defensive fallback (should never trigger — word count always
-        // matches, see the file header): treat a missing timing entry as
-        // already-revealed rather than permanently invisible.
+        // Defensive fallback: treat a missing timing entry as already-revealed
         const revealStartFrame = timing ? timing.startSeconds * fps : 0;
         const revealEndFrame = revealStartFrame + pacing.revealFrames;
 
@@ -131,10 +170,7 @@ function HighlightedLine({
           extrapolateRight: "clamp",
         });
 
-        // Emphasized words get a short scale-pop after their reveal
-        // finishes: 0.85 -> 1.0 (reveal, same as any word) -> popPeakScale
-        // -> 1.0 (settle). Non-emphasized words just complete the reveal
-        // and hold at 1.0 — no pop, no bounce, no rotation.
+        // Emphasized words get a short scale-pop after their reveal finishes
         const scale =
           highlight && pacing.popEnabled
             ? interpolate(
@@ -148,21 +184,41 @@ function HighlightedLine({
                 extrapolateRight: "clamp",
               });
 
+        const cleanToken = normalise(token);
+        const emoji = highlight ? EMOJI_MAP[cleanToken] : null;
+
         return (
           <span
             key={i}
             style={{
+              position: "relative",
               color: highlight ? accentColor : baseColor,
               fontWeight: highlight ? 800 : 600,
-              fontSize: highlight ? baseFontSize * 1.18 : baseFontSize,
-              display: "inline",
+              fontSize: highlight ? baseFontSize * 1.15 : baseFontSize,
+              display: "inline-block",
               textShadow: highlight
-                ? `0 0 20px ${accentColor}88, 0 3px 10px rgba(0,0,0,0.5)`
+                ? `0 0 25px ${accentColor}88, 0 3px 12px rgba(0,0,0,0.6)`
                 : "0 3px 10px rgba(0,0,0,0.4)",
               opacity,
               transform: `scale(${scale}) translateY(${translateY}px)`,
+              transition: "transform 0.1s ease-out",
             }}
           >
+            {emoji && (
+              <span
+                style={{
+                  position: "absolute",
+                  bottom: "105%",
+                  left: "50%",
+                  transform: "translateX(-50%) scale(1.2)",
+                  fontSize: baseFontSize * 0.9,
+                  lineHeight: 1,
+                  pointerEvents: "none",
+                }}
+              >
+                {emoji}
+              </span>
+            )}
             {token}
           </span>
         );
