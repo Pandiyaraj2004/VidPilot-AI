@@ -1,5 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isSupabaseConfigured, getSupabaseClient } from "../supabase/index.js";
+
+const TABLE = "scheduler_locks";
 
 export class SchedulerLock {
   private readonly lockPath: string;
@@ -9,6 +12,27 @@ export class SchedulerLock {
   }
 
   async acquire(slotTime: string): Promise<boolean> {
+    if (isSupabaseConfigured()) {
+      try {
+        const { error } = await getSupabaseClient()
+          .from(TABLE)
+          .insert({
+            key: slotTime,
+          });
+
+        if (error) {
+          // PostgreSQL unique violation code is '23505'
+          if (error.code === "23505") {
+            return false;
+          }
+          throw error;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     try {
       await mkdir(path.dirname(this.lockPath), { recursive: true });
       let currentSlots: string[] = [];

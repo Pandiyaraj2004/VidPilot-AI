@@ -86,6 +86,10 @@ interface AppConfig {
     /** Where the browser is sent back to once the Google consent redirect completes (GET /api/youtube/auth is a real 302 to Google, not a fetch call) — the only place this app needs to know the frontend's own origin. */
     frontendUrl: string;
   };
+  supabase: {
+    url: string | undefined;
+    serviceRoleKey: string | undefined;
+  };
 }
 
 /**
@@ -170,6 +174,10 @@ export const config: AppConfig = {
     redirectUri: process.env.YOUTUBE_REDIRECT_URI ?? `http://localhost:${Number(process.env.PORT ?? 4000)}/api/youtube/callback`,
     tokenStorePath: process.env.YOUTUBE_TOKEN_STORE_PATH ?? path.join(process.cwd(), "data", "youtubeToken.json"),
     frontendUrl: process.env.FRONTEND_URL ?? "http://localhost:5173",
+  },
+  supabase: {
+    url: process.env.SUPABASE_URL,
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
   },
 };
 

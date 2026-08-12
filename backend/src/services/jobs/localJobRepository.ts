@@ -111,6 +111,9 @@ export class LocalJobRepository implements JobRepository {
       const term = filter.search.trim().toLowerCase();
       jobs = jobs.filter((job) => job.topic.toLowerCase().includes(term) || job.id.toLowerCase().includes(term));
     }
+    if (filter?.limit !== undefined) {
+      jobs = jobs.slice(0, filter.limit);
+    }
     return jobs;
   }
 

@@ -26,6 +26,10 @@ import type {
   YouTubeVisibility,
 } from "../../types/index.js";
 import { jobRepository as defaultJobRepository, type JobRepository, type ListJobsFilter } from "./index.js";
+import { isSupabaseConfigured } from "../supabase/index.js";
+import { uploadToSupabaseBucket } from "../supabase/storage.js";
+import path from "node:path";
+import fs from "node:fs";
 
 const VALID_STYLES: VideoStyle[] = ["explainer", "documentary", "story", "qa", "list", "cartoon"];
 const VALID_VISUAL_STYLES: VisualStyle[] = ["automatic", "minimal", "cinematic", "educational", "cartoon"];
@@ -219,7 +223,7 @@ export function createJobOrchestrator(
 
   async function getRecentFingerprints(excludeId: string): Promise<ContentFingerprint[]> {
     try {
-      const recent = await repo.listJobs();
+      const recent = await repo.listJobs({ limit: 20 });
       return recent
         .filter((job) => job.id !== excludeId && job.content)
         .slice(0, RECENT_SAMPLE_LIMIT)
@@ -319,6 +323,21 @@ export function createJobOrchestrator(
         force: options.force,
         targetSceneId: options.targetSceneId,
       });
+
+      // If Supabase is configured, upload the successfully generated audio files to Supabase Storage
+      if (result.allReady && isSupabaseConfigured()) {
+        for (const scene of result.scenes) {
+          if (scene.audio?.status === "ready" && scene.audio.path && fs.existsSync(scene.audio.path)) {
+            try {
+              const filename = path.basename(scene.audio.path);
+              const bucketPath = `${job.id}/audio/${filename}`;
+              await uploadToSupabaseBucket("voice-audio", scene.audio.path, bucketPath);
+            } catch (uploadErr) {
+              console.error(`[VidPilot] Failed to upload audio for scene ${scene.id} to Supabase: ${(uploadErr as Error).message}`);
+            }
+          }
+        }
+      }
 
       const nextStatus: JobStatus = result.allReady ? "voice_ready" : "failed";
       const provider = getVoiceById(job.voiceId)?.provider ?? "piper";
@@ -519,6 +538,16 @@ export function createJobOrchestrator(
         });
       }
 
+      let finalVideoPath = renderResult.finalVideoPath;
+      if (isSupabaseConfigured()) {
+        try {
+          const destination = `${job.id}/final.mp4`;
+          finalVideoPath = await uploadToSupabaseBucket("rendered-videos", renderResult.finalVideoPath, destination);
+        } catch (uploadErr) {
+          console.error(`[VidPilot] Failed to upload final video to Supabase Storage: ${(uploadErr as Error).message}`);
+        }
+      }
+
       return await repo.updateJob(job.id, {
         content: { ...job.content, scenes },
         status: "video_ready",
@@ -533,7 +562,7 @@ export function createJobOrchestrator(
           videoCodec: validation.metadata!.videoCodec,
           audioCodec: validation.metadata!.audioCodec,
           fileSizeBytes: validation.metadata!.fileSizeBytes,
-          path: renderResult.finalVideoPath,
+          path: finalVideoPath,
           error: null,
         },
         lastError: null,

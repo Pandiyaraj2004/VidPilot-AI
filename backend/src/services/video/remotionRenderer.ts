@@ -55,20 +55,40 @@ export interface RenderSceneInput {
   energy?: number;
 }
 
+class AsyncMutex {
+  private queue: Promise<void> = Promise.resolve();
+
+  async acquire(): Promise<() => void> {
+    let release: () => void;
+    const next = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const current = this.queue;
+    this.queue = next;
+    await current;
+    return release!;
+  }
+}
+
+const renderMutex = new AsyncMutex();
+
 /**
  * Opens one headless Chrome instance and hands it to `render` for reuse
- * across every scene in a job, then closes it. Letting each renderMedia
- * call open and close its own browser (the default) was observed to hang
- * indefinitely starting on the 4th sequential render in this environment —
- * sharing one instance avoids that repeated launch/teardown entirely and
- * is also just faster.
+ * across every scene in a job, then closes it. Wrapped in a Mutex so that
+ * multiple jobs rendering concurrently queue up and render sequentially,
+ * avoiding parallel Puppeteer rendering from overloading CPU/RAM.
  */
 export async function withRenderBrowser<T>(render: (browser: HeadlessBrowser) => Promise<T>): Promise<T> {
-  const browser = await openBrowser("chrome", { browserExecutable: config.rendering.chromiumExecutablePath ?? undefined });
+  const release = await renderMutex.acquire();
   try {
-    return await render(browser);
+    const browser = await openBrowser("chrome", { browserExecutable: config.rendering.chromiumExecutablePath ?? undefined });
+    try {
+      return await render(browser);
+    } finally {
+      await browser.close({ silent: true });
+    }
   } finally {
-    await browser.close({ silent: true });
+    release();
   }
 }
 

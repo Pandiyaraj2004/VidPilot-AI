@@ -31,6 +31,12 @@ export function useJobs(filter?: UseJobsFilter, pollIntervalMs = POLL_INTERVAL_M
   const status = filter?.status;
   const search = filter?.search;
 
+  // Optimize DB reads: if list contains no active processing jobs, slow down polling to 30s
+  const hasActiveJob = jobs.some(job => 
+    !["ready", "failed", "published", "cancelled", "approved", "rejected", "draft"].includes(job.status)
+  );
+  const effectiveInterval = pollIntervalMs > 0 ? (hasActiveJob ? pollIntervalMs : 30000) : 0;
+
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
@@ -53,15 +59,15 @@ export function useJobs(filter?: UseJobsFilter, pollIntervalMs = POLL_INTERVAL_M
     }
 
     load(false);
-    if (pollIntervalMs > 0) {
-      timer = window.setInterval(() => load(true), pollIntervalMs);
+    if (effectiveInterval > 0) {
+      timer = window.setInterval(() => load(true), effectiveInterval);
     }
 
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
     };
-  }, [status, search, pollIntervalMs, refetchToken]);
+  }, [status, search, effectiveInterval, refetchToken]);
 
   const refetch = useCallback(() => setRefetchToken((t) => t + 1), []);
 

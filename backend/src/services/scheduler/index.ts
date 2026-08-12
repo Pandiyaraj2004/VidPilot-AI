@@ -104,12 +104,6 @@ export class SchedulerService {
   }
 
   async runPipeline(): Promise<void> {
-    if (runningPipeline) {
-      console.warn("[Scheduler] Production pipeline already running. Concurrency limit reached.");
-      return;
-    }
-
-    runningPipeline = true;
     let jobId: string | undefined;
 
     try {
@@ -223,7 +217,7 @@ export class SchedulerService {
         message: `Automated pipeline failed: ${err instanceof Error ? err.message : String(err)}`,
       });
     } finally {
-      runningPipeline = false;
+      // Finished pipeline execution
     }
   }
 

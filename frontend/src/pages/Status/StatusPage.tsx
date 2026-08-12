@@ -94,13 +94,18 @@ export default function StatusPage() {
     }
   }
 
+  const isActive = job 
+    ? !["ready", "failed", "published", "cancelled", "draft", "approved", "rejected"].includes(job.status) 
+    : true;
+  const effectiveInterval = isActive ? POLL_INTERVAL_MS : 60000;
+
   useEffect(() => {
     void fetchLatest();
-    intervalRef.current = setInterval(() => void fetchLatest(true), POLL_INTERVAL_MS);
+    intervalRef.current = setInterval(() => void fetchLatest(true), effectiveInterval);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, []);
+  }, [effectiveInterval]);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">

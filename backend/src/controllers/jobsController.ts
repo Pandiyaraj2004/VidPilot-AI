@@ -1,8 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
+import fs from "node:fs";
+import path from "node:path";
 import * as jobService from "../services/jobs/jobService.js";
 import { sendApprovalRequestForJob } from "../services/telegram/sendApproval.js";
 import { cacheAssetPath, readCachedAsset } from "../services/visual/assetCache.js";
 import type { JobStatus } from "../types/index.js";
+import { isSupabaseConfigured } from "../services/supabase/index.js";
+import { downloadFromSupabaseBucket } from "../services/supabase/storage.js";
 
 export async function createJobHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -26,12 +30,12 @@ export async function listJobsHandler(req: Request, res: Response, next: NextFun
 
 export async function getLatestJobHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const jobs = await jobService.listJobs();
+    const jobs = await jobService.listJobs({ limit: 1 });
     if (jobs.length === 0) {
       res.status(404).json({ error: "No jobs found." });
       return;
     }
-    // listJobs returns jobs ordered newest-first (Firestore desc by createdAt)
+    // listJobs returns jobs ordered newest-first (desc by createdAt)
     res.json(jobs[0]);
   } catch (err) {
     next(err);
@@ -123,7 +127,22 @@ export async function getSceneAudioHandler(req: Request, res: Response, next: Ne
       res.status(404).json({ error: "No audio is available for this scene." });
       return;
     }
-    res.sendFile(scene.audio.path, (err) => {
+
+    const localPath = scene.audio.path;
+    // Download from Supabase if not present locally
+    if (!fs.existsSync(localPath) && isSupabaseConfigured()) {
+      try {
+        const filename = path.basename(localPath);
+        const bucketPath = `${req.params.id}/audio/${filename}`;
+        const buffer = await downloadFromSupabaseBucket("voice-audio", bucketPath);
+        await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
+        await fs.promises.writeFile(localPath, buffer);
+      } catch (err) {
+        console.error(`[VidPilot] Failed to download scene audio from Supabase: ${(err as Error).message}`);
+      }
+    }
+
+    res.sendFile(localPath, (err) => {
       if (err) next(err);
     });
   } catch (err) {
@@ -241,6 +260,13 @@ export async function getJobVideoHandler(req: Request, res: Response, next: Next
       res.status(404).json({ error: "No video is available for this job." });
       return;
     }
+
+    // Direct redirect to Supabase storage URL if hosted externally
+    if (job.videoRender.path.startsWith("http://") || job.videoRender.path.startsWith("https://")) {
+      res.redirect(job.videoRender.path);
+      return;
+    }
+
     res.sendFile(job.videoRender.path, (err) => {
       if (err) next(err);
     });

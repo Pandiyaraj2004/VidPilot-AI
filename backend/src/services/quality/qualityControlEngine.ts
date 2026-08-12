@@ -89,8 +89,8 @@ export async function runQualityControl(job: VideoJob, contentProvider?: Content
   );
   const score = Math.round(rawScore);
 
-  // Score >= 70 = PASS; below 70 = FAIL regardless of individual category results.
-  const status = score >= 70 ? "PASS" : "FAIL";
+  const hasFailures = failures.length > 0 || allResults.some((r) => r.status === "FAIL");
+  const status = hasFailures ? "FAIL" : warnings.length > 0 ? "WARN" : "PASS";
 
   return {
     jobId: job.id,

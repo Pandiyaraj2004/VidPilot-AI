@@ -1,13 +1,13 @@
 # VidPilot AI
 
-A personal, single-user AI video production and YouTube publishing workspace. Give it a topic, and it plans, writes, voices, sources real content-matched visuals, mixes licensed music/SFX, subtitles, renders, quality-checks, and sends a real playable video to your Telegram for approval — then (in later phases) publishes to YouTube and tracks performance to inform the next topic.
+A personal, single-user AI video production and YouTube publishing workspace. Give it a topic, and it plans, writes, voices, sources real content-matched visuals, mixes licensed music/SFX, subtitles, renders, quality-checks, and sends a real playable video to your Telegram for approval — then publishes to YouTube, runs on an automated schedule, and tracks performance.
 
-**Current state:** Script → Voice → Visuals → Music/SFX → Subtitles → Render → Validate → Quality Control → Telegram Approval → **YouTube Upload** is fully built and producing real, verified output, end to end — a real human decision on your phone gates the last automated step, a real Google OAuth connection and a real `videos.insert` call publish it. The default output format is **vertical 9:16 Shorts (1080×1920)** — 16:9 landscape is still fully supported, just not the default (see "Switching back to 16:9" below). No thumbnail generation runs yet — the `ThumbnailAsset`/`uploadThumbnail` plumbing exists and is exercised in tests, but nothing in the job pipeline generates one yet, so every real upload today goes out with YouTube's own auto-picked thumbnail.
+**Current state:** The entire pipeline from Script → Voice → Visuals → Music/SFX → Subtitles → Render → Validate → Quality Control → Telegram Approval ➔ YouTube Upload ➔ **Automation Scheduling** is fully built and producing real, verified output. Data persistence is fully migrated to **Supabase Database & Storage**, making the app ready for serverless or containerized deployment. The default output format is **vertical 9:16 Shorts (1080×1920)** — 16:9 landscape is still fully supported, just not the default (see "Switching back to 16:9" below).
 
 ## What VidPilot can do today
 
-### Job management
-- Create Video form → `VideoJob` persisted via the backend (Firestore, or an automatic local-JSON fallback when Firestore isn't configured)
+### Job management & Cloud DB
+- **Supabase Database Persistence**: Persists all video jobs (`VideoJob`), scheduler configuration, locks, and history logs into Supabase Postgres database tables (`jobs`, `scheduler_config`, `automation_history`, `scheduler_locks`) with automatic local JSON fallback.
 - A required **content category** (General Knowledge, Mystery, Motivation, Technology, AI, Science, History, Space, Facts, Business, Psychology, Story, News/Current Events) — user-selected, never AI-guessed, since it deterministically drives music selection and AI prompting tone
 - Video Queue with filters, Job Details with the full pipeline history, cancel/retry, Dashboard with real (not fabricated) counts per stage
 
@@ -33,7 +33,7 @@ A personal, single-user AI video production and YouTube publishing workspace. Gi
 - **Content-matched search queries** built from the AI's own `visualKeywords` per scene (`visualQueryBuilder.ts`), not generic style buckets
 - **Multiple short clips per scene** (0.8–3s, energy-dependent — a high-energy scene gets more, faster cuts; a calm one gets fewer, longer holds), with real motion (Ken Burns pan/zoom on stills) and transitions between them (`visualPlanningEngine.ts`, `transitionSystem.ts`, `motionSystem.ts`)
 - Deterministic selection (`hashString(seed) % candidates.length`) — a retry lands on the same assets, so retrying doesn't silently change how the video looks
-- Downloaded assets are cached (`storage/visual-cache/`) so the same source is never re-fetched across jobs
+- Downloaded assets are cached locally (`storage/visual-cache/`) and persistently uploaded to the Supabase `visual-cache` private bucket so they are shared across instances and never re-fetched
 - Falls back to the original deterministic local templates/palettes (`localVisualProvider.ts`) when no API key is configured or a query genuinely returns nothing usable — never a crash, never a fake asset
 
 ### Music & Sound Effects Engine
@@ -216,14 +216,14 @@ Both the scene-audio route and the job-video route never take a filesystem path 
 ## Tech Stack
 
 **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, React Router v7, Lucide icons, oxlint
-**Backend:** Node.js, TypeScript, Express, **firebase-admin**, **zod**, **vitest**, **googleapis**
+**Backend:** Node.js, TypeScript, Express, **@supabase/supabase-js**, **zod**, **vitest**, **googleapis**
 **AI providers:** Gemini + OpenRouter (script)
-**Voice:** **Piper TTS** (English/Hindi, self-hosted binary) + **Microsoft Edge TTS** (Tamil, free network service)
+**Voice:** **Piper TTS** (English/Hindi, self-hosted binary) + **Microsoft Edge TTS** (Tamil, free network service) + high-quality Microsoft Edge Neural voice variants
 **Visuals:** **Pixabay** + **Pexels** (video/image APIs, free keys) + **Wikimedia Commons** (no key needed) + deterministic local fallback
 **Music:** **Jamendo** (real API, free, CC-licensed tracks) + a manually-curated local library fallback
 **Rendering:** **Remotion** driving a real installed **Google Chrome**, plus a separately downloaded **FFmpeg** static build for concatenation/mixing/validation
 **Fonts:** Noto Sans / Noto Sans Devanagari / Noto Sans Tamil (OFL)
-**Database:** Firebase Firestore (via backend Admin SDK) with an automatic local-JSON fallback
+**Database & Storage:** **Supabase (Postgres & Storage)** for jobs, config, locks, history, final videos, narration audios, and visual clips, with local file/JSON fallback.
 **Approval:** **Telegram Bot API** (real bot, long-polling + webhook transport, no SDK)
 **Publishing:** **YouTube Data API v3** via the official `googleapis` OAuth2 client — real upload, real connected-channel lookup
 **Planned integrations (later phases):** YouTube Analytics API
@@ -426,7 +426,6 @@ See [MASTER_PLAN.md](MASTER_PLAN.md) for the complete project vision and full ph
 
 | Phase | Scope |
 |---|---|
-| 12 | Elapsed-time automation scheduler |
 | 13 | YouTube Analytics integration |
 | 14 | AI performance insights / topic recommendations |
 | 15 | Cartoon / advanced animation engine |

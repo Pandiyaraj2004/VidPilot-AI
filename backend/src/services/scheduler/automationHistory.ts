@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isSupabaseConfigured, getSupabaseClient } from "../supabase/index.js";
 
 export interface AutomationHistoryEntry {
   timestamp: string;
@@ -18,6 +19,8 @@ export interface AutomationHistoryEntry {
   message?: string;
 }
 
+const TABLE = "automation_history";
+
 export class AutomationHistory {
   private readonly historyPath: string;
 
@@ -26,6 +29,20 @@ export class AutomationHistory {
   }
 
   async read(): Promise<AutomationHistoryEntry[]> {
+    if (isSupabaseConfigured()) {
+      const { data, error } = await getSupabaseClient()
+        .from(TABLE)
+        .select("data")
+        .order("id", { ascending: false })
+        .limit(200);
+
+      if (error) {
+        throw new Error(`Failed to read automation history from Supabase: ${error.message}`);
+      }
+
+      return (data || []).map((row) => row.data as AutomationHistoryEntry);
+    }
+
     try {
       const raw = await readFile(this.historyPath, "utf-8");
       if (!raw || !raw.trim()) return [];
@@ -37,11 +54,25 @@ export class AutomationHistory {
   }
 
   async record(entry: Omit<AutomationHistoryEntry, "timestamp">): Promise<void> {
-    const records = await this.read();
     const newRecord: AutomationHistoryEntry = {
       timestamp: new Date().toISOString(),
       ...entry,
     };
+
+    if (isSupabaseConfigured()) {
+      const { error } = await getSupabaseClient()
+        .from(TABLE)
+        .insert({
+          data: newRecord,
+        });
+
+      if (error) {
+        throw new Error(`Failed to record automation history in Supabase: ${error.message}`);
+      }
+      return;
+    }
+
+    const records = await this.read();
     records.unshift(newRecord);
     // Keep last 200 events for timeline and diagnostics
     if (records.length > 200) {

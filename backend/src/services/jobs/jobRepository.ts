@@ -3,6 +3,7 @@ import type { CreateJobInput, JobStatus, VideoJob } from "../../types/index.js";
 export interface ListJobsFilter {
   status?: JobStatus;
   search?: string;
+  limit?: number;
 }
 
 /**

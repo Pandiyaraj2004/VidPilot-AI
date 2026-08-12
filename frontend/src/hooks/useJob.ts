@@ -20,6 +20,12 @@ export function useJob(id: string | undefined, pollIntervalMs = POLL_INTERVAL_MS
   const [notFound, setNotFound] = useState(false);
   const [refetchToken, setRefetchToken] = useState(0);
 
+  // Slow down polling when job reaches a terminal status to reduce DB reads
+  const isActive = job 
+    ? !["ready", "failed", "published", "cancelled", "draft", "approved", "rejected"].includes(job.status) 
+    : true;
+  const effectiveInterval = pollIntervalMs > 0 ? (isActive ? pollIntervalMs : 60000) : 0;
+
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
@@ -48,15 +54,15 @@ export function useJob(id: string | undefined, pollIntervalMs = POLL_INTERVAL_MS
     }
 
     load(false);
-    if (pollIntervalMs > 0) {
-      timer = window.setInterval(() => load(true), pollIntervalMs);
+    if (effectiveInterval > 0) {
+      timer = window.setInterval(() => load(true), effectiveInterval);
     }
 
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
     };
-  }, [id, pollIntervalMs, refetchToken]);
+  }, [id, effectiveInterval, refetchToken]);
 
   const refetch = useCallback(() => setRefetchToken((t) => t + 1), []);
 

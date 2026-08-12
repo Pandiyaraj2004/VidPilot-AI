@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SchedulerConfig } from "../../types/index.js";
+import { isSupabaseConfigured, getSupabaseClient } from "../supabase/index.js";
 
 const DEFAULT_CONFIG: SchedulerConfig = {
   automationEnabled: false,
@@ -20,24 +21,59 @@ const DEFAULT_CONFIG: SchedulerConfig = {
   updatedAt: new Date().toISOString(),
 };
 
+const TABLE = "scheduler_config";
+
 export class SchedulerConfigRepository {
   private readonly configPath: string;
+  private cachedConfig: SchedulerConfig | null = null;
+  private cacheTimestamp: number = 0;
+  private static readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
 
   constructor(dataDir: string = path.join(process.cwd(), "storage")) {
     this.configPath = path.join(dataDir, "schedulerConfig.json");
   }
 
   async get(): Promise<SchedulerConfig> {
-    try {
-      const raw = await readFile(this.configPath, "utf-8");
-      return JSON.parse(raw) as SchedulerConfig;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        await this.set(DEFAULT_CONFIG);
-        return DEFAULT_CONFIG;
-      }
-      throw err;
+    const now = Date.now();
+    if (this.cachedConfig && (now - this.cacheTimestamp < SchedulerConfigRepository.CACHE_TTL_MS)) {
+      return this.cachedConfig;
     }
+
+    let loadedConfig: SchedulerConfig;
+
+    if (isSupabaseConfigured()) {
+      const { data, error } = await getSupabaseClient()
+        .from(TABLE)
+        .select("data")
+        .eq("id", "default")
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(`Failed to load scheduler config from Supabase: ${error.message}`);
+      }
+
+      if (data) {
+        loadedConfig = data.data as SchedulerConfig;
+      } else {
+        // If not present, save the default config
+        loadedConfig = await this.set(DEFAULT_CONFIG);
+      }
+    } else {
+      try {
+        const raw = await readFile(this.configPath, "utf-8");
+        loadedConfig = JSON.parse(raw) as SchedulerConfig;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          loadedConfig = await this.set(DEFAULT_CONFIG);
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    this.cachedConfig = loadedConfig;
+    this.cacheTimestamp = now;
+    return loadedConfig;
   }
 
   async set(config: SchedulerConfig): Promise<SchedulerConfig> {
@@ -45,8 +81,28 @@ export class SchedulerConfigRepository {
       ...config,
       updatedAt: new Date().toISOString(),
     };
-    await mkdir(path.dirname(this.configPath), { recursive: true });
-    await writeFile(this.configPath, JSON.stringify(updatedConfig, null, 2), "utf-8");
+
+    if (isSupabaseConfigured()) {
+      const { error } = await getSupabaseClient()
+        .from(TABLE)
+        .upsert({
+          id: "default",
+          data: updatedConfig,
+          updated_at: updatedConfig.updatedAt,
+        });
+
+      if (error) {
+        throw new Error(`Failed to save scheduler config to Supabase: ${error.message}`);
+      }
+    } else {
+      await mkdir(path.dirname(this.configPath), { recursive: true });
+      await writeFile(this.configPath, JSON.stringify(updatedConfig, null, 2), "utf-8");
+    }
+
+    // Update in-memory cache
+    this.cachedConfig = updatedConfig;
+    this.cacheTimestamp = Date.now();
+
     return updatedConfig;
   }
 }
