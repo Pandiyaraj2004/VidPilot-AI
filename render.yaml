@@ -1,13 +1,16 @@
 # Render.com — VidPilot backend (Web Service)
-# Free tier is 512 MB RAM. Video rendering (Remotion + Chrome) may OOM on free tier;
-# use Starter (2 GB+) for reliable automated renders, or run renders on a separate worker.
+# Free tier is 512 MB RAM (runtime memory, not disk). node_modules on disk is ~450 MB
+# after production prune + cache cleanup (see buildCommand); that does not equal RAM use.
+# Remotion + Chrome rendering often needs 1–2 GB+ RAM and may OOM on free tier;
+# free tier can reliably run API, scheduler, Telegram/YouTube; use Starter (2 GB+) for renders.
 services:
   - type: web
     name: vidpilot-backend
     runtime: node
     rootDir: backend
     plan: free
-    buildCommand: npm install && npm run build
+    # Install all deps for tsc build, then drop devDependencies and Remotion webpack cache (~220 MB saved).
+    buildCommand: npm ci && npm run build && npm prune --production && rm -rf node_modules/.cache
     startCommand: node dist/server.js
     healthCheckPath: /api/status
     envVars:
