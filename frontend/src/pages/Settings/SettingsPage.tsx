@@ -33,8 +33,9 @@ const DURATION_OPTIONS = [
 const INTEGRATIONS: IntegrationState[] = [
   { key: "gemini", label: "Gemini", configured: false },
   { key: "openrouter", label: "OpenRouter", configured: false },
+  { key: "supabase", label: "Supabase", configured: false },
   { key: "telegram", label: "Telegram", configured: false },
-  { key: "firebase", label: "Firebase", configured: false },
+  { key: "firebase", label: "Firebase (fallback)", configured: false },
 ];
 
 function YoutubeConnectionCard() {

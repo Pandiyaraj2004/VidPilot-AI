@@ -1,9 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { SchedulerService } from "../services/scheduler/index.js";
+import { getSchedulerService } from "../services/scheduler/index.js";
 import { AutomationHistory } from "../services/scheduler/automationHistory.js";
 
 export const automationRouter = Router();
-const scheduler = new SchedulerService();
+const scheduler = getSchedulerService();
 const history = new AutomationHistory();
 
 async function getAutomationHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {

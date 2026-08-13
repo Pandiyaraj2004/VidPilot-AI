@@ -8,6 +8,15 @@ import { VOICE_OPTIONS } from "../voice/voiceConfig.js";
 import type { SchedulerConfig } from "../../types/index.js";
 
 let checkInterval: NodeJS.Timeout | null = null;
+let schedulerInstance: SchedulerService | null = null;
+
+/** One process-wide scheduler — tick loop state must not be split across instances. */
+export function getSchedulerService(): SchedulerService {
+  if (!schedulerInstance) {
+    schedulerInstance = new SchedulerService();
+  }
+  return schedulerInstance;
+}
 export function validateSchedulerConfig(patch: Partial<SchedulerConfig>): void {
   if (patch.intervalHours !== undefined) {
     if (typeof patch.intervalHours !== "number" || patch.intervalHours < 1) {
@@ -121,8 +130,20 @@ export class SchedulerService {
     const current = await this.configRepo.get();
     const merged = { ...current, ...newConfig };
     
-    // Recalculate nextGenerationAt if enabling or interval changed
-    if (merged.automationEnabled && (!current.automationEnabled || current.intervalHours !== merged.intervalHours)) {
+    // Honor an explicit nextGenerationAt (e.g. user picked a wall-clock time in the UI).
+    const explicitNextRun =
+      typeof newConfig.nextGenerationAt === "string" && newConfig.nextGenerationAt.trim().length > 0
+        ? newConfig.nextGenerationAt
+        : null;
+
+    // Recalculate nextGenerationAt if enabling or interval changed — unless caller set a specific time.
+    if (merged.automationEnabled && explicitNextRun) {
+      merged.nextGenerationAt = explicitNextRun;
+      await this.history.record({
+        eventType: "scheduler_recalculated",
+        message: `Next run scheduled at ${merged.nextGenerationAt}`,
+      });
+    } else if (merged.automationEnabled && (!current.automationEnabled || current.intervalHours !== merged.intervalHours)) {
       const now = new Date();
       merged.nextGenerationAt = new Date(now.getTime() + merged.intervalHours * 60 * 60 * 1000).toISOString();
       await this.history.record({
@@ -294,9 +315,14 @@ export class SchedulerService {
 
       if (qcJob.status === "ready") {
         if (config.requireApproval) {
-          // 7. Send Telegram Approval
-          console.log(`[Scheduler] Sending video approval request to Telegram for job ${jobId}...`);
-          await sendApprovalRequestForJob(jobId);
+          const { jobRepository } = await import("../jobs/index.js");
+          const fresh = await jobRepository.getJob(jobId);
+          if (fresh?.telegramMessageId || fresh?.status === "awaiting_approval") {
+            console.log(`[Scheduler] Telegram approval already sent for job ${jobId} — skipping duplicate send.`);
+          } else {
+            console.log(`[Scheduler] Sending video approval request to Telegram for job ${jobId}...`);
+            await sendApprovalRequestForJob(jobId);
+          }
 
           await this.history.record({
             eventType: "awaiting_approval",
@@ -390,20 +416,22 @@ export class SchedulerService {
             const qcJob = await runQualityCheckForJob(job.id);
             
             if (qcJob.status === "ready") {
-              console.log(`[Scheduler] Quality check passed for job ${job.id}. Now sending Telegram approval...`);
-              
               const config = await this.configRepo.get();
               if (qcJob.approvalRequired && config.requireApproval) {
-                try {
-                  await sendApprovalRequestForJob(job.id);
-                  await this.history.record({
-                    eventType: "awaiting_approval",
-                    jobId: job.id,
-                    message: `Quality check passed. Sent Telegram approval request for job ${job.id}.`,
-                  });
-                  console.log(`[Scheduler] Telegram approval sent for job ${job.id}.`);
-                } catch (approvalErr) {
-                  console.error(`[Scheduler] Failed to send Telegram approval for job ${job.id}:`, approvalErr);
+                if (qcJob.telegramMessageId) {
+                  console.log(`[Scheduler] Job ${job.id} already has Telegram approval sent — skipping.`);
+                } else {
+                  try {
+                    await sendApprovalRequestForJob(job.id);
+                    await this.history.record({
+                      eventType: "awaiting_approval",
+                      jobId: job.id,
+                      message: `Quality check passed. Sent Telegram approval request for job ${job.id}.`,
+                    });
+                    console.log(`[Scheduler] Telegram approval sent for job ${job.id}.`);
+                  } catch (approvalErr) {
+                    console.error(`[Scheduler] Failed to send Telegram approval for job ${job.id}:`, approvalErr);
+                  }
                 }
               }
             } else {
@@ -426,8 +454,14 @@ export class SchedulerService {
       
       if (readyJobs.length === 0) return;
 
-      // Filter for jobs that haven't had approval sent yet (telegramMessageId is null)
-      const needsApprovalSent = readyJobs.filter(job => job.approvalRequired && !job.telegramMessageId);
+      // Only first-time sends — resend is manual from Job Details.
+      const needsApprovalSent = readyJobs.filter(
+        (job) =>
+          job.approvalRequired &&
+          job.status === "ready" &&
+          !job.telegramMessageId &&
+          (!job.approval || job.approval.status === "not_sent")
+      );
       
       if (needsApprovalSent.length === 0) return;
 

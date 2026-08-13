@@ -88,8 +88,8 @@ export async function runQualityCheck(id: string): Promise<VideoJob> {
   return jobRepository.runQualityCheck(id);
 }
 
-export async function sendApprovalRequest(id: string): Promise<VideoJob> {
-  return jobRepository.sendApprovalRequest(id);
+export async function sendApprovalRequest(id: string, options?: { resend?: boolean }): Promise<VideoJob> {
+  return jobRepository.sendApprovalRequest(id, options);
 }
 
 export async function getApproval(id: string): Promise<JobApproval> {

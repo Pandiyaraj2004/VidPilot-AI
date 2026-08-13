@@ -52,9 +52,16 @@ export function ApprovalStatusCard({
       )}
 
       {approval.status === "sent" && (
-        <p className="mt-2 text-xs text-text-secondary">
-          Check Telegram for the video with Approve / Reject buttons. This card updates once you respond there.
-        </p>
+        <>
+          <p className="mt-2 text-xs text-text-secondary">
+            Check Telegram for the video with Approve / Reject buttons. This card updates once you respond there.
+          </p>
+          {approval.version > 0 && (
+            <p className="mt-1 text-xs font-medium text-info">
+              Request version {approval.version} — always use the latest Telegram message; older buttons show &quot;expired&quot;.
+            </p>
+          )}
+        </>
       )}
 
       {(approval.status === "not_sent" || approval.status === "sent") && (

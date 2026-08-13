@@ -84,7 +84,8 @@ const QUALITY_CHECK_FAILURE_MESSAGE =
 
 // A previously-sent approval can be resent (e.g. the Telegram message was
 // dismissed) without requiring a brand new render.
-const APPROVAL_SEND_STATUSES: JobStatus[] = ["ready", "awaiting_approval"];
+const APPROVAL_SEND_STATUSES: JobStatus[] = ["ready"];
+const APPROVAL_RESEND_STATUSES: JobStatus[] = ["awaiting_approval"];
 // Telegram's real ceiling for a bot-uploaded video via sendVideo.
 const TELEGRAM_MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
@@ -651,6 +652,29 @@ export function createJobOrchestrator(
     if (!APPROVAL_SEND_STATUSES.includes(job.status)) {
       throw new ValidationError(`A job in "${job.status}" status is not eligible to send for approval.`);
     }
+    if (job.telegramMessageId) {
+      throw new ValidationError("Telegram approval was already sent for this job — use Resend if you need a fresh message.");
+    }
+    if (!job.videoRender || job.videoRender.status !== "ready" || !job.videoRender.path) {
+      throw new ValidationError("This job has no rendered video to send for approval.");
+    }
+    if (job.videoRender.fileSizeBytes && job.videoRender.fileSizeBytes > TELEGRAM_MAX_VIDEO_BYTES) {
+      throw new ValidationError(
+        `This video is ${(job.videoRender.fileSizeBytes / (1024 * 1024)).toFixed(1)}MB, over Telegram's ${TELEGRAM_MAX_VIDEO_BYTES / (1024 * 1024)}MB bot upload limit.`
+      );
+    }
+    return job;
+  }
+
+  /** Manual resend only — job must still be awaiting a decision on the current render. */
+  async function prepareApprovalResend(id: string): Promise<VideoJob> {
+    const job = await getJobOrThrow(id);
+    if (!APPROVAL_RESEND_STATUSES.includes(job.status)) {
+      throw new ValidationError(`A job in "${job.status}" status cannot be resent for approval.`);
+    }
+    if (!job.approval || job.approval.status !== "sent" || job.approval.decision != null) {
+      throw new ValidationError("This job is not awaiting a Telegram decision — nothing to resend.");
+    }
     if (!job.videoRender || job.videoRender.status !== "ready" || !job.videoRender.path) {
       throw new ValidationError("This job has no rendered video to send for approval.");
     }
@@ -665,6 +689,12 @@ export function createJobOrchestrator(
   /** Only called after a real Telegram send succeeds — bumps the approval version so any earlier message becomes stale. */
   async function recordApprovalSent(id: string, telegramMessageId: number): Promise<VideoJob> {
     const job = await getJobOrThrow(id);
+    if (["approved", "uploading", "published"].includes(job.status)) {
+      throw new ValidationError(`Cannot record a Telegram send for a job already in "${job.status}" status.`);
+    }
+    if (job.approval?.decision === "approved" || job.approval?.decision === "rejected") {
+      throw new ValidationError("This job already has a Telegram approval decision — cannot send again.");
+    }
     const nextVersion = (job.approval?.version ?? 0) + 1;
     const approval: JobApproval = {
       status: "sent",
@@ -907,6 +937,7 @@ export function createJobOrchestrator(
     renderVideoForJob,
     runQualityCheckForJob,
     prepareApprovalSend,
+    prepareApprovalResend,
     recordApprovalSent,
     approveJob,
     recordPendingRejectionPrompt,
@@ -933,6 +964,7 @@ export const regenerateVisualsForScene = defaultOrchestrator.regenerateVisualsFo
 export const renderVideoForJob = defaultOrchestrator.renderVideoForJob;
 export const runQualityCheckForJob = defaultOrchestrator.runQualityCheckForJob;
 export const prepareApprovalSend = defaultOrchestrator.prepareApprovalSend;
+export const prepareApprovalResend = defaultOrchestrator.prepareApprovalResend;
 export const recordApprovalSent = defaultOrchestrator.recordApprovalSent;
 export const approveJob = defaultOrchestrator.approveJob;
 export const recordPendingRejectionPrompt = defaultOrchestrator.recordPendingRejectionPrompt;

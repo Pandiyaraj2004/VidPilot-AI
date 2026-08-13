@@ -4,7 +4,7 @@ import { config } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { apiRouter } from "./routes/index.js";
 import { startTelegramPolling } from "./services/telegram/telegramPoller.js";
-import { SchedulerService } from "./services/scheduler/index.js";
+import { getSchedulerService } from "./services/scheduler/index.js";
 
 const app = express();
 
@@ -21,7 +21,7 @@ app.listen(config.port, async () => {
   
   // Start the scheduler config setup & loops
   try {
-    const scheduler = new SchedulerService();
+    const scheduler = getSchedulerService();
     const config = await scheduler.getConfig();
     if (config.automationEnabled) {
       scheduler.startLoop();

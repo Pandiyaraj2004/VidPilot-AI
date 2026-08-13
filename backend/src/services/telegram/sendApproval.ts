@@ -14,34 +14,49 @@ import { buildApprovalCaption } from "./approvalMessage.js";
 import { buildApprovalButtons } from "./callbackData.js";
 import { telegramProvider } from "./index.js";
 import { ensureLocalVideoFile } from "../video/videoStorage.js";
+import { SchedulerLock } from "../scheduler/schedulerLock.js";
 
-export async function sendApprovalRequestForJob(id: string): Promise<VideoJob> {
-  const job = await jobService.prepareApprovalSend(id);
+export interface SendApprovalOptions {
+  /** When true, sends a fresh Telegram message for a job already awaiting approval (manual UI only). */
+  resend?: boolean;
+}
 
-  if (!telegramProvider.isConfigured()) {
-    throw new ValidationError("Telegram approval is not configured (missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID).");
+export async function sendApprovalRequestForJob(id: string, options: SendApprovalOptions = {}): Promise<VideoJob> {
+  const lock = new SchedulerLock();
+  const lockKey = `approval-send:${id}`;
+  const acquired = await lock.acquire(lockKey);
+  if (!acquired) {
+    throw new ValidationError("A Telegram approval send is already in progress for this job.");
   }
 
-  // Resolve local video path if it's stored on Supabase
-  const localVideoPath = await ensureLocalVideoFile(job.id, job.videoRender!.path!);
-
-  // The version this request will carry is one past whatever's currently
-  // recorded — buttons are encoded with it up front so the provider call
-  // and the persisted approval record always agree on the same version.
-  const nextVersion = (job.approval?.version ?? 0) + 1;
-  const caption = buildApprovalCaption(job);
-  const buttons = buildApprovalButtons(job.id, nextVersion);
-
   try {
-    const { messageId } = await telegramProvider.sendVideoWithApproval({
-      chatId: config.telegram.chatId!,
-      videoPath: localVideoPath,
-      caption,
-      buttons,
-    });
-    return await jobService.recordApprovalSent(id, messageId);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unexpected error sending the Telegram approval request.";
-    throw new HttpError(502, `Could not send this video for Telegram approval: ${message}`);
+    const job = options.resend
+      ? await jobService.prepareApprovalResend(id)
+      : await jobService.prepareApprovalSend(id);
+
+    if (!telegramProvider.isConfigured()) {
+      throw new ValidationError("Telegram approval is not configured (missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID).");
+    }
+
+    const localVideoPath = await ensureLocalVideoFile(job.id, job.videoRender!.path!);
+
+    const nextVersion = (job.approval?.version ?? 0) + 1;
+    const caption = buildApprovalCaption(job);
+    const buttons = buildApprovalButtons(job.id, nextVersion);
+
+    try {
+      const { messageId } = await telegramProvider.sendVideoWithApproval({
+        chatId: config.telegram.chatId!,
+        videoPath: localVideoPath,
+        caption,
+        buttons,
+      });
+      return await jobService.recordApprovalSent(id, messageId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unexpected error sending the Telegram approval request.";
+      throw new HttpError(502, `Could not send this video for Telegram approval: ${message}`);
+    }
+  } finally {
+    await lock.release(lockKey);
   }
 }

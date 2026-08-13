@@ -196,9 +196,39 @@ export default function SchedulerPage() {
                     value={config.intervalHours}
                     onChange={(event) => update("intervalHours", Number(event.target.value))}
                   />
-                  <p className="mt-1 text-xs text-text-secondary">Calculated drift-free.</p>
+                  <p className="mt-1 text-xs text-text-secondary">Used after each run to compute the following slot.</p>
                 </div>
 
+                <div>
+                  <label htmlFor="next-run" className="mb-1.5 block text-sm font-medium text-text-primary">
+                    Next Run At (optional)
+                  </label>
+                  <Input
+                    id="next-run"
+                    type="datetime-local"
+                    value={
+                      config.nextGenerationAt
+                        ? (() => {
+                            const d = new Date(config.nextGenerationAt);
+                            const pad = (n: number) => String(n).padStart(2, "0");
+                            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                          })()
+                        : ""
+                    }
+                    onChange={(event) => {
+                      if (!event.target.value) {
+                        update("nextGenerationAt", null);
+                        return;
+                      }
+                      update("nextGenerationAt", new Date(event.target.value).toISOString());
+                    }}
+                    disabled={!config.automationEnabled}
+                  />
+                  <p className="mt-1 text-xs text-text-secondary">Set a specific wall-clock time; save to apply.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label htmlFor="timezone" className="mb-1.5 block text-sm font-medium text-text-primary">
                     Scheduler Timezone

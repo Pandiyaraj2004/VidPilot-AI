@@ -68,8 +68,8 @@ export const jobRepository = {
     return apiPost<VideoJob>(`/jobs/${encodeURIComponent(id)}/quality-check`);
   },
 
-  sendApprovalRequest(id: string): Promise<VideoJob> {
-    return apiPost<VideoJob>(`/jobs/${encodeURIComponent(id)}/telegram/send-approval`);
+  sendApprovalRequest(id: string, options?: { resend?: boolean }): Promise<VideoJob> {
+    return apiPost<VideoJob>(`/jobs/${encodeURIComponent(id)}/telegram/send-approval`, options?.resend ? { resend: true } : undefined);
   },
 
   getApproval(id: string): Promise<JobApproval> {

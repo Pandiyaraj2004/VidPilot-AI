@@ -179,13 +179,19 @@ export async function getVisualAssetHandler(req: Request, res: Response, next: N
     const localPath = cacheAssetPath(meta.id, meta.ext);
     if (!fs.existsSync(localPath) && isSupabaseConfigured()) {
       try {
-        const bucketPath = `${meta.id}.${meta.ext}`;
+        const bucketPath = `${meta.id}/asset${meta.ext}`;
         const buffer = await downloadFromSupabaseBucket("visual-cache", bucketPath);
         await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
         await fs.promises.writeFile(localPath, buffer);
       } catch (err) {
         console.error(`[VidPilot] Failed to download visual asset from Supabase: ${(err as Error).message}`);
+        res.status(404).json({ error: "No visual asset is available with this id for this job." });
+        return;
       }
+    }
+    if (!fs.existsSync(localPath)) {
+      res.status(404).json({ error: "No visual asset is available with this id for this job." });
+      return;
     }
     res.sendFile(localPath, (err) => {
       if (err) next(err);
@@ -228,7 +234,8 @@ export async function qualityReportHandler(req: Request, res: Response, next: Ne
 
 export async function sendApprovalHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const job = await sendApprovalRequestForJob(req.params.id);
+    const resend = req.body?.resend === true;
+    const job = await sendApprovalRequestForJob(req.params.id, { resend });
     res.json(job);
   } catch (err) {
     next(err);

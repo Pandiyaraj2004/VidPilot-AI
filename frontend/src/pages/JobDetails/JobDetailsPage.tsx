@@ -342,9 +342,16 @@ export default function JobDetailsPage() {
     if (!job || approvalLockRef.current) return;
     approvalLockRef.current = true;
     setIsSendingApproval(true);
+    const isResend = job.approval?.status === "sent";
     try {
-      await sendApprovalRequest(job.id);
-      showToast({ variant: "success", title: "Sent to Telegram", description: "Check your Telegram for the video and Approve/Reject buttons." });
+      await sendApprovalRequest(job.id, isResend ? { resend: true } : undefined);
+      showToast({
+        variant: "success",
+        title: isResend ? "Resent to Telegram" : "Sent to Telegram",
+        description: isResend
+          ? "Use the newest message — older Approve/Reject buttons no longer work."
+          : "Check your Telegram for the video and Approve/Reject buttons.",
+      });
     } catch (err) {
       showToast({
         variant: "error",

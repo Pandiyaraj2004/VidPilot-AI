@@ -35,7 +35,7 @@ function describeFailure(reason: ApprovalActionFailureReason): string {
     case "not_awaiting_approval":
       return "This job is not awaiting approval anymore.";
     case "stale_version":
-      return "This approval request has expired — a newer version exists for this job.";
+      return "This approval request has expired — tap Approve or Reject on the latest Telegram message for this video.";
     default:
       return "Could not process this action.";
   }

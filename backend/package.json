@@ -13,6 +13,7 @@
     "scan-audio": "tsx scripts/scanAudioAssets.ts"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "@remotion/bundler": "^4.0.507",
     "@remotion/renderer": "^4.0.507",
     "@supabase/supabase-js": "^2.112.3",

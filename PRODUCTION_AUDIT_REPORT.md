@@ -22,10 +22,14 @@ VidPilot AI is a comprehensive, production-ready AI video generation platform. T
 
 ### Backend Dependencies Status
 
+#### ✅ Required transitive dependency (do NOT remove)
+| Package | Reason | Action |
+|---------|--------|--------|
+| `@opentelemetry/api` | Required at runtime by `@google-cloud/firestore` (firebase-admin) even though this repo never imports it directly | ✅ **Must stay in dependencies** |
+
 #### ✅ Removed (Safe, Unused)
 | Package | Reason | Action |
 |---------|--------|--------|
-| `@opentelemetry/api` | No imports found anywhere in codebase | ✅ Removed |
 | `react-dom` | Not used in backend; only Remotion's React is needed | ✅ Removed |
 
 #### ✅ Fixed (Misplaced)

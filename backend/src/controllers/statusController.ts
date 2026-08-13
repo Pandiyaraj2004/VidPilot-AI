@@ -3,13 +3,13 @@ import { config, isConfigured } from "../config/env.js";
 import { isFirebaseConfigured } from "../services/firebase/index.js";
 import { isSupabaseConfigured } from "../services/supabase/index.js";
 import { youtubeProvider } from "../services/youtube/index.js";
-import { SchedulerService } from "../services/scheduler/index.js";
+import { getSchedulerService } from "../services/scheduler/index.js";
 import type { SystemStatus } from "../types/index.js";
 
 export async function getSystemStatus(_req: Request, res: Response, next: (err?: unknown) => void): Promise<void> {
   try {
     const youtubeConnected = await youtubeProvider.isConnected();
-    const scheduler = new SchedulerService();
+    const scheduler = getSchedulerService();
     const schedulerConfig = await scheduler.getConfig();
 
     const { jobRepository } = await import("../services/jobs/index.js");

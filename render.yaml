@@ -1,0 +1,23 @@
+# Render.com — VidPilot backend (Web Service)
+# Free tier is 512 MB RAM. Video rendering (Remotion + Chrome) may OOM on free tier;
+# use Starter (2 GB+) for reliable automated renders, or run renders on a separate worker.
+services:
+  - type: web
+    name: vidpilot-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    healthCheckPath: /api/status
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=460
+      - key: PORT
+        value: 4000
+      # Set in Render dashboard (never commit secrets):
+      # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY,
+      # TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+      # YOUTUBE_REDIRECT_URI, FRONTEND_URL, PIXABAY_API_KEY, PEXELS_API_KEY, JAMENDO_CLIENT_ID

@@ -9,7 +9,7 @@ export interface SystemStatus {
   schedulerState?: any;
 }
 
-export type IntegrationKey = "gemini" | "openrouter" | "telegram" | "youtube" | "firebase";
+export type IntegrationKey = "gemini" | "openrouter" | "telegram" | "youtube" | "supabase" | "firebase";
 
 export interface IntegrationState {
   key: IntegrationKey;

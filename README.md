@@ -96,6 +96,41 @@ Tamil has no published Piper acoustic model — Piper's own bundled `espeak-ng-d
 
 Which provider handles a voice is a property of the voice itself (`services/voice/voiceConfig.ts`); `voiceEngine.ts` dispatches to the right one per scene.
 
+### Automation Scheduler (Phase 12)
+- **Elapsed-time scheduler** — compares `now >= nextGenerationAt` every 30s (not cron); when due, runs the full pipeline: create job → script → voice → render → QC → Telegram approval (or auto-upload when `requireApproval` is false) → YouTube upload for approved jobs
+- **Wall-clock scheduling** — Scheduler page includes a **Next Run At** datetime picker; save settings to fire at a specific time (e.g. 5:52 PM IST) without using "Generate Now"
+- **Recovery hooks** — on each tick, also processes stranded `video_ready`, `ready` (approval not sent), and `approved` (upload pending) jobs
+- **Variation engine** — rotates content category, language, voice, topic structure, hook type, and duration band to reduce repetition
+- Manual **Create Video** and **Generate Now** still work alongside automation
+
+## Deployment (Render backend + Vercel frontend)
+
+### Backend on Render
+1. Connect this repo; set **Root Directory** to `backend` (or use the included `render.yaml`).
+2. **Build command:** `npm install && npm run build`
+3. **Start command:** `node dist/server.js` (do not use `npm start` on Render — it rebuilds on every boot).
+4. Set all secrets from `backend/.env.example` in the Render dashboard.
+5. Set `YOUTUBE_REDIRECT_URI` to `https://<your-service>.onrender.com/api/youtube/callback` and add that URI in Google Cloud Console.
+6. Set `FRONTEND_URL` to your Vercel URL.
+7. **Memory:** Render free tier is **512 MB**. Remotion + Chrome rendering often needs **1–2 GB+**. Free tier can run the API, scheduler, and Telegram/YouTube flows; for reliable automated renders use **Starter (2 GB+)** or a separate render worker. `NODE_OPTIONS=--max-old-space-size=460` is set in `render.yaml` as a guard.
+
+### Frontend on Vercel
+1. Set **Root Directory** to `frontend`.
+2. **Build command:** `npm run build` — **Output:** `dist`
+3. Set `VITE_API_BASE_URL=https://<your-render-service>.onrender.com/api`
+4. `frontend/vercel.json` includes SPA rewrites.
+
+### Storage on deploy
+- `backend/storage/` is gitignored and not deployed — caches regenerate on demand.
+- With Supabase configured, job metadata and media persist in Postgres + Storage buckets (`rendered-videos`, `voice-audio`, `visual-cache`).
+- Local `visual-cache/` and `jamendo-cache/` are safe to delete anytime; they re-download on the next job.
+
+### Connecting Supabase (recommended for production)
+1. Create a Supabase project; run table migrations / seed scripts under `backend/scripts/` if present.
+2. Create storage buckets: `rendered-videos`, `voice-audio`, `visual-cache` (see `backend/scripts/setupSupabaseBuckets.ts`).
+3. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `backend/.env` / Render env.
+4. Firebase remains an automatic fallback when Supabase is unset; `FORCE_LOCAL_STORAGE=true` forces local JSON/files even when Supabase is configured.
+
 ## Recent fixes (real bugs found via real generated output, not assumed)
 
 - **Caption word-spacing collapse** — whitespace spans between words didn't inherit the same font-size as the word spans around them, so spaces rendered at a fraction of their real width and looked invisible next to bold highlighted text. Fixed in `DynamicCaption.tsx`; confirmed by extracting and visually inspecting real rendered frames.
@@ -107,6 +142,9 @@ Which provider handles a voice is a property of the voice itself (`services/voic
 - **Video playback broke the moment Quality Control ran** — the video-serving route (and, separately, the frontend's derived "is the video ready" state) both gated on `job.status === "video_ready"`, which QC immediately moves the job past. Fixed both to key off `videoRender.status === "ready"` alone — the actually-relevant fact — so a QC'd video stays playable.
 - **A Telegram chat id was actually the bot's own id** — `TELEGRAM_CHAT_ID` set to the bot's numeric id causes every send to fail with a real `403 Forbidden: the bot can't send messages to the bot`; recovered by having the user message the bot and reading their real id back from `getUpdates`.
 - **An unexpected error during a Telegram callback left the tapped button spinning forever** — `handleTelegramUpdate`'s per-action logic had no top-level error handling, so an infrastructure failure (witnessed live: a Firestore quota outage mid-approve) crashed out before ever calling `answerCallbackQuery`. Fixed with a catch that still answers the callback (or messages the chat, for a free-text reply) with a real "try again" notice.
+- **`@opentelemetry/api` missing after dependency cleanup** — a production audit removed `@opentelemetry/api` because nothing in this repo imports it directly, but `@google-cloud/firestore` (pulled in by `firebase-admin`) requires it at runtime. Backend startup failed with `Cannot find module '@opentelemetry/api'` until the package was restored as an explicit dependency.
+- **Duplicate scheduler tick loops** — `server.ts`, `routes/automation.ts`, and `statusController.ts` each constructed their own `SchedulerService`, so saving scheduler settings via the API could start a second 30s tick loop while the boot-time instance kept running. Fixed with a process-wide singleton (`getSchedulerService()`).
+- **Visual asset 404 during Remotion render** — `getVisualAssetHandler` re-downloaded missing cache files from Supabase using the wrong bucket path (`{id}.{ext}` instead of `{id}/asset{ext}`), so renders failed once local cache was cleared even when Supabase still had the file.
 
 ## Architecture
 
@@ -314,9 +352,9 @@ Then follow the setup sections below for real voice/visual/music/video generatio
 
 See `backend/.env.example` for `GEMINI_API_KEY` / `OPENROUTER_API_KEY` (+ optional model overrides). Neither is ever sent to the browser.
 
-### Connecting a real Firebase project (optional)
+### Connecting a real Firebase project (optional fallback)
 
-The app works with zero configuration (local JSON fallback). See `backend/.env.example` / `frontend/.env.example` for the exact variables, or briefly: enable Firestore Database in the Firebase console, generate a service account, and set `FIREBASE_PROJECT_ID` + `FIREBASE_SERVICE_ACCOUNT` in `backend/.env` plus `VITE_FIREBASE_*` in `frontend/.env.local`.
+The app works with zero configuration (local JSON fallback). **Supabase is the primary production store** (see "Deployment" above). Firebase is used only when Supabase is not configured. See `backend/.env.example` for variables.
 
 ### Piper setup (English/Hindi voice)
 
