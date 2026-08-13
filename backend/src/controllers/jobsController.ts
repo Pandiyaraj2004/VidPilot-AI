@@ -176,7 +176,18 @@ export async function getVisualAssetHandler(req: Request, res: Response, next: N
       res.status(404).json({ error: "No visual asset is available with this id for this job." });
       return;
     }
-    res.sendFile(cacheAssetPath(meta.id, meta.ext), (err) => {
+    const localPath = cacheAssetPath(meta.id, meta.ext);
+    if (!fs.existsSync(localPath) && isSupabaseConfigured()) {
+      try {
+        const bucketPath = `${meta.id}.${meta.ext}`;
+        const buffer = await downloadFromSupabaseBucket("visual-cache", bucketPath);
+        await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
+        await fs.promises.writeFile(localPath, buffer);
+      } catch (err) {
+        console.error(`[VidPilot] Failed to download visual asset from Supabase: ${(err as Error).message}`);
+      }
+    }
+    res.sendFile(localPath, (err) => {
       if (err) next(err);
     });
   } catch (err) {

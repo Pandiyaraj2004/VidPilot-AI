@@ -13,6 +13,7 @@ import type { VideoJob } from "../../types/index.js";
 import { buildApprovalCaption } from "./approvalMessage.js";
 import { buildApprovalButtons } from "./callbackData.js";
 import { telegramProvider } from "./index.js";
+import { ensureLocalVideoFile } from "../video/videoStorage.js";
 
 export async function sendApprovalRequestForJob(id: string): Promise<VideoJob> {
   const job = await jobService.prepareApprovalSend(id);
@@ -20,6 +21,9 @@ export async function sendApprovalRequestForJob(id: string): Promise<VideoJob> {
   if (!telegramProvider.isConfigured()) {
     throw new ValidationError("Telegram approval is not configured (missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID).");
   }
+
+  // Resolve local video path if it's stored on Supabase
+  const localVideoPath = await ensureLocalVideoFile(job.id, job.videoRender!.path!);
 
   // The version this request will carry is one past whatever's currently
   // recorded — buttons are encoded with it up front so the provider call
@@ -31,7 +35,7 @@ export async function sendApprovalRequestForJob(id: string): Promise<VideoJob> {
   try {
     const { messageId } = await telegramProvider.sendVideoWithApproval({
       chatId: config.telegram.chatId!,
-      videoPath: job.videoRender!.path!,
+      videoPath: localVideoPath,
       caption,
       buttons,
     });

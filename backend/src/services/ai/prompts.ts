@@ -131,6 +131,41 @@ export function buildUserPrompt(ctx: GenerationContext): string {
     );
   }
 
+  lines.push(
+    "OUTPUT FORMAT: You must return a single JSON object strictly matching this template structure:",
+    JSON.stringify({
+      title: "String",
+      hook: "String",
+      introduction: "String",
+      scenes: [
+        {
+          id: "1",
+          order: 0,
+          narration: "String",
+          visualDescription: "String",
+          onScreenText: "String",
+          estimatedDuration: 10,
+          transition: "cut",
+          emotion: "curiosity",
+          energy: 0.5,
+          sceneRole: "fact",
+          highlightWords: ["word"],
+          musicMood: "curious",
+          visualKeywords: ["keyword"],
+          cameraMovement: "static",
+          editorialNote: "note"
+        }
+      ],
+      conclusion: "String",
+      description: "String",
+      tags: ["tag"],
+      estimatedDuration: 35,
+      storyStructure: "story_conflict",
+      hookType: "strong_question",
+      ctaPattern: "topic_question"
+    }, null, 2)
+  );
+
   return lines.join("\n\n");
 }
 

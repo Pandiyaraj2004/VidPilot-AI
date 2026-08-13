@@ -13,6 +13,13 @@ function connectionRow(label: string, connected: boolean, reachable: boolean): S
   return connected ? { label, tone: "success", text: "Connected" } : { label, tone: "neutral", text: "Not Connected" };
 }
 
+function automationRow(automation: string | undefined, reachable: boolean): StatusRow {
+  if (!reachable) return { label: "Automation", tone: "neutral", text: "Unknown" };
+  if (automation === "running") return { label: "Automation", tone: "success", text: "Active" };
+  if (automation === "ready") return { label: "Automation", tone: "neutral", text: "Ready/Standby" };
+  return { label: "Automation", tone: "neutral", text: "Not configured" };
+}
+
 export function SystemStatusCard() {
   const { status, reachable } = useSystemStatus();
 
@@ -21,7 +28,7 @@ export function SystemStatusCard() {
     reachable
       ? connectionRow("Database", status?.database === "connected", true)
       : { label: "Database", tone: "neutral", text: "Backend not reachable" },
-    { label: "Automation", tone: "neutral", text: "Not active" },
+    automationRow(status?.automation, reachable),
     connectionRow("Telegram", status?.telegram === "connected", reachable),
     connectionRow("YouTube", status?.youtube === "connected", reachable),
   ];

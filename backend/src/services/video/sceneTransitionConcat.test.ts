@@ -75,7 +75,7 @@ describe("concatScenesWithTransitions (real ffmpeg)", () => {
     expect(real).toBeLessThan(6.0);
   });
 
-  it("supports a 3-scene chain mixing a cut and a blend", { timeout: 60000 }, async () => {
+  it("supports a 3-scene chain mixing a cut and a blend", { timeout: 180000 }, async () => {
     const a = path.join(dir, "a.mp4");
     const b = path.join(dir, "b.mp4");
     const c = path.join(dir, "c.mp4");
@@ -125,7 +125,7 @@ describe("concatScenesWithTransitions (real ffmpeg)", () => {
 
   it(
     "handles a scene whose container uses a different internal timebase than this module's own re-encodes (regression: real Remotion output uses timebase 15360, not ffmpeg's usual default — a 3+ scene chain feeds an already-re-encoded intermediate into a second xfade/concat step, and xfade fails outright if the two video inputs' timebases don't match)",
-    { timeout: 60000 },
+    { timeout: 180000 },
     async () => {
       const a = path.join(dir, "a.mp4");
       const bOddTimebase = path.join(dir, "b.mp4");

@@ -329,9 +329,9 @@ export function SceneComposition(props: SceneCompositionProps) {
             isHookScene={false}
             emotion={props.emotion}
             energy={props.energy}
-            sceneRole={props.sceneRole}
           />
         </>
+      )}
     </AbsoluteFill>
   );
 }

@@ -6,6 +6,7 @@ export interface SystemStatus {
   automation: "ready" | "not_configured" | "running";
   telegram: ServiceConnectionState;
   youtube: ServiceConnectionState;
+  schedulerState?: any;
 }
 
 export type IntegrationKey = "gemini" | "openrouter" | "telegram" | "youtube" | "firebase";

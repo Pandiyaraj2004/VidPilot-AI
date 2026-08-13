@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/Switch";
 import { useToast } from "@/hooks/useToast";
 import { getAutomationState, saveSchedulerConfig, triggerGenerationNow } from "@/services/scheduler/schedulerConfigService";
 import { apiGet } from "@/services/api/client";
-import { VIDEO_STYLES, type SchedulerConfig, type VideoJob, type YouTubeVisibility } from "@/types";
+import { VIDEO_STYLES, type SchedulerConfig, type VideoJob, type YouTubeVisibility, type ContentCategory } from "@/types";
 import { Play, Calendar, CheckCircle, XCircle, Activity } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -23,6 +23,47 @@ const VISIBILITY_OPTIONS: { value: YouTubeVisibility; label: string }[] = [
   { value: "private", label: "Private" },
   { value: "unlisted", label: "Unlisted" },
   { value: "public", label: "Public (Shorts)" },
+];
+
+const TIMEZONE_OPTIONS = [
+  { value: "UTC", label: "UTC" },
+  { value: "Asia/Kolkata", label: "Asia/Kolkata (IST)" },
+  { value: "America/New_York", label: "America/New_York (EST/EDT)" },
+  { value: "America/Los_Angeles", label: "America/Los_Angeles (PST/PDT)" },
+  { value: "Europe/London", label: "Europe/London (GMT/BST)" },
+];
+
+const ALL_CATEGORIES: { value: ContentCategory; label: string }[] = [
+  { value: "science", label: "Science" },
+  { value: "general_knowledge", label: "General Knowledge" },
+  { value: "technology", label: "Technology" },
+  { value: "history", label: "History" },
+  { value: "mystery", label: "Mystery" },
+  { value: "motivation", label: "Motivation" },
+  { value: "facts", label: "Facts" },
+  { value: "space", label: "Space" },
+  { value: "ai", label: "AI" },
+  { value: "business", label: "Business" },
+  { value: "psychology", label: "Psychology" },
+  { value: "story", label: "Story" },
+  { value: "news", label: "News" },
+];
+
+const ALL_LANGUAGES = [
+  { value: "en", label: "English" },
+  { value: "ta", label: "Tamil" },
+  { value: "hi", label: "Hindi" },
+];
+
+const ALL_VOICES = [
+  { value: "en_US-amy-medium", label: "Amy (Female, Piper Local)", language: "en" },
+  { value: "en-US-AriaNeural", label: "Aria (Female, Edge Neural)", language: "en" },
+  { value: "en-US-GuyNeural", label: "Guy (Male, Edge Neural)", language: "en" },
+  { value: "hi_IN-priyamvada-medium", label: "Priyamvada (Female, Piper Local)", language: "hi" },
+  { value: "hi-IN-SwararaNeural", label: "Swarara (Female, Edge Neural)", language: "hi" },
+  { value: "hi-IN-MadhurNeural", label: "Madhur (Male, Edge Neural)", language: "hi" },
+  { value: "ta-IN-PallaviNeural", label: "Pallavi (Female, Edge Neural)", language: "ta" },
+  { value: "ta-IN-ValluvarNeural", label: "Valluvar (Male, Edge Neural)", language: "ta" },
 ];
 
 export default function SchedulerPage() {
@@ -49,12 +90,11 @@ export default function SchedulerPage() {
           setLoading(false);
         }
       }
-      // Also load latest job for QC tile
       try {
         const job = await apiGet<VideoJob>("/jobs/latest");
         if (active) setLatestJob(job);
       } catch {
-        // No jobs yet — that's fine
+        // No jobs yet
       }
     }
     void load();
@@ -65,7 +105,7 @@ export default function SchedulerPage() {
 
   function update<K extends keyof SchedulerConfig>(key: K, value: SchedulerConfig[K]) {
     if (!config) return;
-    setConfig((current) => current ? { ...current, [key]: value } : null);
+    setConfig((current) => (current ? { ...current, [key]: value } : null));
   }
 
   async function handleSave() {
@@ -88,6 +128,27 @@ export default function SchedulerPage() {
       showToast({ variant: "error", title: `Trigger failed: ${e.message}` });
     } finally {
       setTriggering(false);
+    }
+  }
+
+  function formatTimestamp(isoString: string | null) {
+    if (!isoString) return "None";
+    try {
+      const options: Intl.DateTimeFormatOptions = {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+        hour12: true,
+      };
+      if (config?.timezone && config.timezone !== "UTC") {
+        options.timeZone = config.timezone;
+      }
+      return new Date(isoString).toLocaleString(undefined, options) + (config?.timezone ? ` (${config.timezone})` : "");
+    } catch {
+      return new Date(isoString).toLocaleString();
     }
   }
 
@@ -123,19 +184,38 @@ export default function SchedulerPage() {
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="interval" className="mb-1.5 block text-sm font-medium text-text-primary">
-                  Generation Interval (hours)
-                </label>
-                <Input
-                  id="interval"
-                  type="number"
-                  min={1}
-                  value={config.intervalHours}
-                  onChange={(event) => update("intervalHours", Number(event.target.value))}
-                  className="w-32"
-                />
-                <p className="mt-1 text-xs text-text-secondary">Calculated drift-free: anchors next run exactly on previous run + interval.</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="interval" className="mb-1.5 block text-sm font-medium text-text-primary">
+                    Generation Interval (hours)
+                  </label>
+                  <Input
+                    id="interval"
+                    type="number"
+                    min={1}
+                    value={config.intervalHours}
+                    onChange={(event) => update("intervalHours", Number(event.target.value))}
+                  />
+                  <p className="mt-1 text-xs text-text-secondary">Calculated drift-free.</p>
+                </div>
+
+                <div>
+                  <label htmlFor="timezone" className="mb-1.5 block text-sm font-medium text-text-primary">
+                    Scheduler Timezone
+                  </label>
+                  <Select
+                    id="timezone"
+                    value={config.timezone || "UTC"}
+                    onChange={(event) => update("timezone", event.target.value)}
+                  >
+                    {TIMEZONE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="mt-1 text-xs text-text-secondary">Times displayed in this zone.</p>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -173,10 +253,125 @@ export default function SchedulerPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="grid grid-cols-2 gap-4 border-t border-border pt-4">
+                <div>
+                  <label htmlFor="min-duration" className="mb-1.5 block text-sm font-medium text-text-primary text-xs">
+                    Min Video Duration (seconds)
+                  </label>
+                  <Input
+                    id="min-duration"
+                    type="number"
+                    min={10}
+                    value={config.minDurationSeconds}
+                    onChange={(event) => update("minDurationSeconds", Number(event.target.value))}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="max-duration" className="mb-1.5 block text-sm font-medium text-text-primary text-xs">
+                    Max Video Duration (seconds)
+                  </label>
+                  <Input
+                    id="max-duration"
+                    type="number"
+                    min={10}
+                    value={config.maxDurationSeconds}
+                    onChange={(event) => update("maxDurationSeconds", Number(event.target.value))}
+                  />
+                </div>
+              </div>
+
+              {/* Content Categories Checkboxes */}
+              <div className="border-t border-border pt-4">
+                <p className="mb-2 text-sm font-semibold text-text-primary">Content Categories Rotation</p>
+                <div className="grid grid-cols-2 gap-2 rounded-lg border border-border p-3 sm:grid-cols-3">
+                  {ALL_CATEGORIES.map((cat) => {
+                    const checked = config.contentCategories.includes(cat.value);
+                    return (
+                      <label key={cat.value} className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer hover:text-text-primary">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            const next = checked
+                              ? config.contentCategories.filter((c) => c !== cat.value)
+                              : [...config.contentCategories, cat.value];
+                            update("contentCategories", next);
+                          }}
+                          className="rounded border-border text-accent focus:ring-accent"
+                        />
+                        {cat.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Languages Checkboxes */}
+              <div className="border-t border-border pt-4">
+                <p className="mb-2 text-sm font-semibold text-text-primary">Language Rotation</p>
+                <div className="flex gap-4 rounded-lg border border-border p-3">
+                  {ALL_LANGUAGES.map((lang) => {
+                    const checked = config.languages.includes(lang.value);
+                    return (
+                      <label key={lang.value} className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer hover:text-text-primary">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            const next = checked
+                              ? config.languages.filter((l) => l !== lang.value)
+                              : [...config.languages, lang.value];
+                            update("languages", next);
+                          }}
+                          className="rounded border-border text-accent focus:ring-accent"
+                        />
+                        {lang.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Voices Rotation */}
+              <div className="border-t border-border pt-4">
+                <p className="mb-2 text-sm font-semibold text-text-primary">Voice Rotation</p>
+                <div className="space-y-4 rounded-lg border border-border p-3">
+                  {ALL_LANGUAGES.filter((lang) => config.languages.includes(lang.value)).map((lang) => {
+                    const voices = ALL_VOICES.filter((v) => v.language === lang.value);
+                    return (
+                      <div key={lang.value} className="space-y-1.5">
+                        <p className="text-xs font-bold text-text-primary border-b border-border pb-0.5">{lang.label} Voices</p>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {voices.map((v) => {
+                            const checked = config.enabledVoices.includes(v.value);
+                            return (
+                              <label key={v.value} className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer hover:text-text-primary">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    const next = checked
+                                      ? config.enabledVoices.filter((vid) => vid !== v.value)
+                                      : [...config.enabledVoices, v.value];
+                                    update("enabledVoices", next);
+                                  }}
+                                  className="rounded border-border text-accent focus:ring-accent"
+                                />
+                                {v.label}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-border pt-4">
                 <div>
                   <p className="text-sm font-medium text-text-primary">Require Telegram Approval</p>
-                  <p className="text-sm text-text-secondary">Every video waits for your explicit Approve tap before YouTube publishing.</p>
+                  <p className="text-xs text-text-secondary">Every video waits for your explicit Approve tap before YouTube publishing.</p>
                 </div>
                 <Switch checked={config.requireApproval} onCheckedChange={(value) => update("requireApproval", value)} />
               </div>
@@ -221,13 +416,13 @@ export default function SchedulerPage() {
                 <div>
                   <span className="text-text-secondary">Next Run:</span>
                   <p className="font-semibold text-text-primary">
-                    {config.nextGenerationAt ? new Date(config.nextGenerationAt).toLocaleString() : "Never (Scheduler Disabled)"}
+                    {config.nextGenerationAt ? formatTimestamp(config.nextGenerationAt) : "Never (Scheduler Disabled)"}
                   </p>
                 </div>
                 <div>
                   <span className="text-text-secondary">Last Run:</span>
                   <p className="font-semibold text-text-primary">
-                    {config.lastGenerationAt ? new Date(config.lastGenerationAt).toLocaleString() : "None"}
+                    {config.lastGenerationAt ? formatTimestamp(config.lastGenerationAt) : "None"}
                   </p>
                 </div>
                 <div>
@@ -284,7 +479,6 @@ export default function SchedulerPage() {
               </CardContent>
             </Card>
           )}
-
         </div>
       </div>
 
@@ -305,7 +499,7 @@ export default function SchedulerPage() {
                       <CheckCircle className="h-3.5 w-3.5 text-success" />
                     )}
                   </div>
-                  <span className="text-[10px] text-text-secondary">{new Date(event.timestamp).toLocaleString()}</span>
+                  <span className="text-[10px] text-text-secondary">{formatTimestamp(event.timestamp)}</span>
                   <p className="font-medium text-text-primary mt-0.5">{event.message}</p>
                   {event.jobId && (
                     <div className="mt-1 flex gap-2 text-[10px] text-text-secondary">

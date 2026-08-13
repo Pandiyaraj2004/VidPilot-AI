@@ -18,6 +18,8 @@ const DEFAULT_CONFIG: SchedulerConfig = {
   enabledVoices: ["en_US-amy-medium", "ta-IN-PallaviNeural", "ta-IN-ValluvarNeural", "hi_IN-priyamvada-medium"],
   contentCategories: ["science", "general_knowledge", "technology", "history", "mystery", "motivation", "facts", "space"],
   lastJobId: null,
+  timezone: "UTC",
+  defaultLanguage: "en",
   updatedAt: new Date().toISOString(),
 };
 

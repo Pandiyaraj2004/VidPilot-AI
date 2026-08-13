@@ -375,6 +375,8 @@ export interface SchedulerConfig {
   enabledVoices: string[];
   contentCategories: ContentCategory[];
   lastJobId: string | null;
+  timezone: string;
+  defaultLanguage: string;
   updatedAt: string;
 }
 
@@ -505,4 +507,5 @@ export interface SystemStatus {
   automation: "ready" | "not_configured" | "running";
   telegram: "connected" | "not_connected";
   youtube: "connected" | "not_connected";
+  schedulerState?: any;
 }

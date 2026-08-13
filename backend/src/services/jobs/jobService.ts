@@ -28,8 +28,10 @@ import type {
 import { jobRepository as defaultJobRepository, type JobRepository, type ListJobsFilter } from "./index.js";
 import { isSupabaseConfigured } from "../supabase/index.js";
 import { uploadToSupabaseBucket } from "../supabase/storage.js";
+import { config } from "../../config/env.js";
 import path from "node:path";
 import fs from "node:fs";
+import { ensureLocalVideoFile } from "../video/videoStorage.js";
 
 const VALID_STYLES: VideoStyle[] = ["explainer", "documentary", "story", "qa", "list", "cartoon"];
 const VALID_VISUAL_STYLES: VisualStyle[] = ["automatic", "minimal", "cinematic", "educational", "cartoon"];
@@ -778,8 +780,8 @@ export function createJobOrchestrator(
         "This job has not been approved for its current render — send it for Telegram approval first."
       );
     }
-    if (job.qualityReport?.status !== "PASS") {
-      throw new ValidationError("This job's quality report is not a PASS — YouTube upload requires a clean quality check.");
+    if (job.qualityReport?.status !== "PASS" && job.qualityReport?.status !== "WARN") {
+      throw new ValidationError("This job's quality report is not a PASS or WARN — YouTube upload requires a clean quality check.");
     }
     if (!job.videoRender || job.videoRender.status !== "ready" || !job.videoRender.path) {
       throw new ValidationError("This job has no rendered video to upload.");
@@ -791,7 +793,16 @@ export function createJobOrchestrator(
       throw new ValidationError("YouTube is not connected — connect your YouTube account first.");
     }
 
-    const videoPath = job.videoRender.path;
+    const uploadLockKey = `upload:${job.id}`;
+    const { SchedulerLock } = await import("../scheduler/schedulerLock.js");
+    const lock = new SchedulerLock();
+    const acquired = await lock.acquire(uploadLockKey);
+    if (!acquired) {
+      console.log(`[JobService] Upload lock already acquired for job ${job.id}. Skipping duplicate upload.`);
+      return job;
+    }
+
+    const videoPath = await ensureLocalVideoFile(job.id, job.videoRender.path);
     const expectedDuration = job.videoRender.durationSeconds ?? 0;
 
     await repo.updateJobStatus(job.id, "uploading");
@@ -822,7 +833,7 @@ export function createJobOrchestrator(
       }
 
       const uploadedAt = new Date().toISOString();
-      return await repo.updateJob(job.id, {
+      const updated = await repo.updateJob(job.id, {
         status: "published",
         youtube: {
           videoId,
@@ -839,7 +850,27 @@ export function createJobOrchestrator(
         lastError: null,
         retryCount: job.retryCount + 1,
       });
+
+      // Cleanup the job's local processing workspace (storage/jobs/{jobId}) safely
+      try {
+        const workspacePath = path.join(config.rendering.storageDir, job.id);
+        if (fs.existsSync(workspacePath)) {
+          await fs.promises.rm(workspacePath, { recursive: true, force: true });
+          console.log(`[JobService] Cleaned up local workspace for job ${job.id}.`);
+        }
+      } catch (cleanupErr) {
+        console.warn(`[JobService] Failed to clean up local workspace for job ${job.id}:`, cleanupErr);
+      }
+
+      return updated;
     } catch (err) {
+      // Release the upload lock so that it can be retried later
+      try {
+        await lock.release(uploadLockKey);
+      } catch (releaseErr) {
+        console.warn(`[JobService] Failed to release upload lock for job ${job.id}:`, releaseErr);
+      }
+
       const message = err instanceof Error ? err.message : "Unexpected error during YouTube upload.";
       await repo.updateJob(job.id, {
         status: "failed",

@@ -54,12 +54,26 @@ function collectIssues(results: QualityCheckResult[]): { warnings: QualityIssue[
   return { warnings, failures };
 }
 
+import { ensureLocalVideoFile } from "../video/videoStorage.js";
+
 export async function runQualityControl(job: VideoJob, contentProvider?: ContentQualityProvider): Promise<QualityReport> {
   const scenes = job.content?.scenes ?? [];
-  const videoPath = job.videoRender?.path ?? null;
+  let videoPath = job.videoRender?.path ?? null;
+  let localVideoRender = job.videoRender;
+
+  if (videoPath) {
+    const localVideoPath = await ensureLocalVideoFile(job.id, videoPath);
+    videoPath = localVideoPath;
+    if (job.videoRender) {
+      localVideoRender = {
+        ...job.videoRender,
+        path: localVideoPath,
+      };
+    }
+  }
 
   const [video, audio] = await Promise.all([
-    validateVideoQuality(job.videoRender),
+    validateVideoQuality(localVideoRender),
     validateAudioQuality(videoPath),
   ]);
   const captions = validateSubtitleQuality(scenes);
