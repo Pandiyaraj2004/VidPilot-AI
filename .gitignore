@@ -9,7 +9,7 @@ Thumbs.db
 frontend/node_modules/
 frontend/dist/
 backend/node_modules/
-backend/dist/
+# backend/dist/ is committed (~0.7 MB) so Render free tier can skip tsc (needs ~2 GB RAM).
 backend/data/
 
 # Firebase service account credentials — never commit these

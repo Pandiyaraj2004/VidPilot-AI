@@ -9,8 +9,8 @@ services:
     runtime: node
     rootDir: backend
     plan: free
-    # Install all deps for tsc build, then drop devDependencies and Remotion webpack cache (~220 MB saved).
-    buildCommand: npm ci && npm run build && npm prune --production && rm -rf node_modules/.cache
+    # tsc needs ~2 GB RAM — cannot run on Render free (512 MB). backend/dist is committed from CI/local build.
+    buildCommand: npm ci --omit=dev && rm -rf node_modules/.cache
     startCommand: node dist/server.js
     healthCheckPath: /api/status
     envVars:
