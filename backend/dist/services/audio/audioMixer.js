@@ -15,16 +15,16 @@ import { runFfmpeg } from "../ffmpeg/ffmpegRunner.js";
 import { readAudioMetadata } from "../voice/audioMetadata.js";
 import { config } from "../../config/env.js";
 /** Builds the [1:a]...[music_pre] chain: loop the track to cover the full narration duration (works whether the source is shorter or longer), fade its edges, hold it under musicVolume before ducking is applied on top. */
-function musicPrepFilter(durationSeconds) {
+function musicPrepFilter(durationSeconds, offsetSeconds = 0) {
     const fadeSeconds = Math.min(1, durationSeconds / 4);
     const fadeOutStart = Math.max(0, durationSeconds - fadeSeconds).toFixed(3);
-    return (`[1:a]aloop=loop=-1:size=2000000000,atrim=0:${durationSeconds.toFixed(3)},` +
+    return (`[1:a]aloop=loop=-1:size=2000000000,atrim=${offsetSeconds.toFixed(3)}:${(offsetSeconds + durationSeconds).toFixed(3)},asetpts=PTS-STARTPTS,` +
         `volume=${config.music.musicVolume},` +
         `afade=t=in:st=0:d=${fadeSeconds.toFixed(3)},afade=t=out:st=${fadeOutStart}:d=${fadeSeconds.toFixed(3)}[music_pre]`);
 }
-async function mixWithSidechainDucking(narrationPath, musicPath, durationSeconds, sampleRate, channels, outputPath) {
+async function mixWithSidechainDucking(narrationPath, musicPath, durationSeconds, sampleRate, channels, outputPath, musicOffsetSeconds = 0) {
     const filterComplex = [
-        musicPrepFilter(durationSeconds),
+        musicPrepFilter(durationSeconds, musicOffsetSeconds),
         // sidechaincompress's inputs are [main][sidechain] — main is the signal that
         // actually gets compressed and appears in the output; the sidechain input is
         // only a control signal and is otherwise discarded. Music must be main
@@ -49,8 +49,8 @@ async function mixWithSidechainDucking(narrationPath, musicPath, durationSeconds
     ]);
 }
 /** Fallback when the sidechain graph fails on some input: music held at a fixed, lower level under narration — real static attenuation, not dynamic ducking, and reported as such by the caller. */
-async function mixWithFixedAttenuation(narrationPath, musicPath, durationSeconds, sampleRate, channels, outputPath) {
-    const quieterMusic = `${musicPrepFilter(durationSeconds).replace(`volume=${config.music.musicVolume}`, `volume=${(config.music.musicVolume * 0.5).toFixed(3)}`)}`;
+async function mixWithFixedAttenuation(narrationPath, musicPath, durationSeconds, sampleRate, channels, outputPath, musicOffsetSeconds = 0) {
+    const quieterMusic = `${musicPrepFilter(durationSeconds, musicOffsetSeconds).replace(`volume=${config.music.musicVolume}`, `volume=${(config.music.musicVolume * 0.5).toFixed(3)}`)}`;
     const filterComplex = [quieterMusic, "[0:a][music_pre]amix=inputs=2:duration=first:dropout_transition=0[out]"].join(";");
     await runFfmpeg([
         "-y",
@@ -97,12 +97,12 @@ export async function mixSceneAudio(input) {
     let musicMixedPath = input.narrationPath;
     if (input.musicPath) {
         try {
-            await mixWithSidechainDucking(input.narrationPath, input.musicPath, narrationMeta.durationSeconds, narrationMeta.sampleRate, narrationMeta.channels, hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath);
+            await mixWithSidechainDucking(input.narrationPath, input.musicPath, narrationMeta.durationSeconds, narrationMeta.sampleRate, narrationMeta.channels, hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath, Math.max(0, input.musicOffsetSeconds ?? 0));
             usedDynamicDucking = true;
         }
         catch (err) {
             console.error(`[VidPilot] Sidechain ducking failed, falling back to fixed attenuation: ${err.message}`);
-            await mixWithFixedAttenuation(input.narrationPath, input.musicPath, narrationMeta.durationSeconds, narrationMeta.sampleRate, narrationMeta.channels, hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath);
+            await mixWithFixedAttenuation(input.narrationPath, input.musicPath, narrationMeta.durationSeconds, narrationMeta.sampleRate, narrationMeta.channels, hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath, Math.max(0, input.musicOffsetSeconds ?? 0));
         }
         musicMixedPath = hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath;
     }

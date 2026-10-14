@@ -1,6 +1,11 @@
 // Personal dashboard and OAuth callback server. Starts the configured worker
 // after checking the durable YouTube connection.
 import dotenv from 'dotenv';dotenv.config({quiet:true});
+import {createWriteStream,mkdirSync} from 'node:fs';
+mkdirSync(new URL('../../maintenance/',import.meta.url),{recursive:true});
+const workerLog=createWriteStream(new URL('../../maintenance/worker-runtime.log',import.meta.url),{flags:'a'});
+process.stdout.write=workerLog.write.bind(workerLog);
+process.stderr.write=workerLog.write.bind(workerLog);
 Object.assign(process.env,{NODE_ENV:'production',SERVER_BOOTSTRAP:'manual'});
 const {app,readiness}=await import('../dist/server.js');
 const port=Number(process.env.PORT??4000);

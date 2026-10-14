@@ -14,7 +14,8 @@
     "scan-audio": "tsx scripts/scanAudioAssets.ts",
     "maintenance": "node dist/maintenance.js",
     "prebuild": "node scripts/clean-dist.mjs",
-    "size": "node scripts/deployment-size.mjs"
+    "size": "node scripts/deployment-size.mjs",
+    "postinstall": "node scripts/patch-edge-client.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -30,7 +31,7 @@
     "express": "^4.19.2",
     "firebase-admin": "^14.2.0",
     "google-auth-library": "^11.3.0",
-    "msedge-tts": "^2.0.7",
+    "msedge-tts": "^2.0.8",
     "react": "^19.2.8",
     "remotion": "^4.0.507",
     "zod": "^4.4.3"

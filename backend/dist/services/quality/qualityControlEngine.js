@@ -71,6 +71,13 @@ export async function runQualityControl(job, contentProvider) {
         validateVideoQuality(localVideoRender),
         validateAudioQuality(videoPath),
     ]);
+    if (job.source === "manual" && job.durationSeconds >= 50 && job.durationSeconds <= 60) {
+        const duration = Number(video.details.durationSeconds);
+        if (!Number.isFinite(duration) || duration < 50 || duration > 60) {
+            video.status = "FAIL";
+            video.issues.push({ severity: "error", message: `Manual cinematic Short must be 50–60 seconds; measured ${duration}s.` });
+        }
+    }
     const captions = validateSubtitleQuality(scenes);
     const visuals = validateVisualQuality(scenes);
     const sync = validateSyncQuality(job);

@@ -1,6 +1,6 @@
 # vidpilot ai Version 1 — verified implementation report
 
-Updated 14 October 2026. Existing repository upgraded in place. Initial Git staging was preserved; no commit, push or cloud deployment was performed.
+Updated 14 October 2026. Existing repository upgraded in place and earlier upgrades pushed to GitHub. Cloud deployment has not been performed. The latest cinematic/manual-generation verification is documented in [CINEMATIC_UPGRADE.md](CINEMATIC_UPGRADE.md), including the new public 55-second test video and 473 passing backend tests. The historical baseline below describes the earlier upgrade.
 
 ## Operational result
 

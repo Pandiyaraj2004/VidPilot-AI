@@ -23,7 +23,7 @@ app.post("/api/session/local",localSession);
 app.use("/api",authenticate,apiRouter);
 if(process.env.SERVE_DASHBOARD==="true")app.use(express.static(path.resolve(process.cwd(),"../frontend/dist")));
 app.use(notFoundHandler);app.use(errorHandler);
-if(process.env.NODE_ENV!=="test" && process.env.MAINTENANCE_MODE!=="true" && process.env.SERVER_BOOTSTRAP!=="manual")app.listen(config.port,async()=>{
+if(process.env.NODE_ENV!=="test" && process.env.MAINTENANCE_MODE!=="true" && process.env.SERVER_BOOTSTRAP!=="manual")app.listen(config.port,process.env.NODE_ENV==="production"?"0.0.0.0":"127.0.0.1",async()=>{
  console.info(`vidpilot ai listening on ${config.port}`);
  try{const cleanup=await runCleanup() as {errors?:string[]};if(cleanup.errors?.length)throw new Error(`Startup cleanup failed: ${cleanup.errors.join("; ")}`);readiness.ready=true;if(process.env.WORKER_ENABLED!=="false")getSchedulerService().startLoop();}catch(e){readiness.error=(e as Error).message;console.error("Startup blocked:",e);}
 });

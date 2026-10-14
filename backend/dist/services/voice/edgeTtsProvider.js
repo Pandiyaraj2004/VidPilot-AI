@@ -1,5 +1,4 @@
-import { mkdtemp, rm, unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, mkdir, rm, unlink } from "node:fs/promises";
 import path from "node:path";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { config } from "../../config/env.js";
@@ -42,14 +41,15 @@ export class EdgeTtsProvider {
         if (!text) {
             throw new VoiceProviderError("invalid_input", "Narration text is empty.");
         }
-        const tmpDir = await mkdtemp(path.join(tmpdir(), "vidpilot-edge-tts-"));
+        await mkdir(path.dirname(input.outputPath), { recursive: true });
+        const tmpDir = await mkdtemp(path.join(path.dirname(input.outputPath), "edge-tts-"));
         const tts = new MsEdgeTTS();
         try {
             await withTimeout(tts.setMetadata(voice.edgeVoiceName, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3), config.edgeTts.timeoutMs, "connection");
             // Phase 6 — pitch/volume are real SSML prosody controls Microsoft's
             // service genuinely supports (see ProsodyOptions), unlike Piper which
             // has no such flag — see voiceProvider.ts's VoiceInput comment.
-            const { audioFilePath } = await withTimeout(tts.toFile(tmpDir, text, {
+            const { audioFilePath } = await withTimeout(tts.toFile(tmpDir, text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"), {
                 rate: input.speed,
                 ...(input.pitchHint ? { pitch: input.pitchHint } : {}),
                 ...(input.volumeHint ? { volume: input.volumeHint } : {}),
@@ -65,7 +65,10 @@ export class EdgeTtsProvider {
             tts.close();
             await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
         }
-        const validation = await validateAudioFile(input.outputPath);
+        // A whole neural scene can contain natural sentence pauses. Keep the
+        // tighter single-sentence threshold; never allow arbitrary silent gaps.
+        const multiSentence = (text.match(/[.!?।॥]+/g)?.length ?? 0) > 1;
+        const validation = await validateAudioFile(input.outputPath, { maxInternalSilenceSeconds: multiSentence ? 1.5 : 1 });
         if (!validation.valid || !validation.metadata) {
             await unlink(input.outputPath).catch(() => undefined);
             throw new VoiceProviderError("validation_failed", validation.errors.join(" "));

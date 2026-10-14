@@ -53,7 +53,7 @@ export const config = {
     visuals: {
         pixabayApiKey: process.env.PIXABAY_API_KEY,
         pexelsApiKey: process.env.PEXELS_API_KEY,
-        maxVideoHeight: Number(process.env.VISUAL_MAX_VIDEO_HEIGHT ?? 720),
+        maxVideoHeight: Number(process.env.VISUAL_MAX_VIDEO_HEIGHT ?? 1080),
         maxImageWidth: Number(process.env.VISUAL_MAX_IMAGE_WIDTH ?? 1600),
         assetCacheDir: process.env.VISUAL_ASSET_CACHE_DIR ?? path.join(temporaryMediaRoot, "visual-cache"),
         requestTimeoutMs: Number(process.env.VISUAL_REQUEST_TIMEOUT_MS ?? 15000),

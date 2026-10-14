@@ -1,12 +1,11 @@
 $ErrorActionPreference = 'Stop'
 $backendPath = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $nodePath = (Get-Command node.exe).Source
-$logPath = Join-Path $backendPath '..\maintenance\worker.log'
 $workerPath = Join-Path $PSScriptRoot 'personal-server.mjs'
 $taskName = 'vidpilot-ai-worker'
 $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($existingTask -and -not $existingTask.Description.Contains($backendPath)) { throw 'An unrelated task already uses this name; refusing to overwrite it.' }
-$command = "Set-Location -LiteralPath '$backendPath'; & '$nodePath' '$workerPath' >> '$logPath' 2>&1"
+$command = "`$worker = Start-Process -FilePath '$nodePath' -ArgumentList '`"$workerPath`"' -WorkingDirectory '$backendPath' -WindowStyle Hidden -PassThru; `$worker.WaitForExit(); exit `$worker.ExitCode"
 $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -EncodedCommand $encoded" -WorkingDirectory $backendPath
 $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited

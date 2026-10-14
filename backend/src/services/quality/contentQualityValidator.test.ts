@@ -75,3 +75,7 @@ describe("validateContentQuality (LocalHeuristicProvider)", () => {
     expect(provider.evaluateScene(scene)).toEqual(provider.evaluateScene(scene));
   });
 });
+it("fails footage searches that use a camera direction as the subject",()=>{
+ const report=validateContentQuality([makeScene({narration:"Central banks adjust interest rates.",visualDescription:"slow motion bank building",visual:{status:"ready",assets:[makeAsset("slow motion")]}})]);
+ expect(report.status).toBe("FAIL");expect(report.issues.some(i=>i.severity==="error")).toBe(true);
+});

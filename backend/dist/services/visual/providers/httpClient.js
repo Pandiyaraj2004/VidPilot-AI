@@ -83,4 +83,19 @@ export async function withMediaRetry(operation, sleep = (ms) => new Promise(reso
     }
 }
 export function fetchJsonWithTimeout(url, timeoutMs, headers) { return withMediaRetry(() => fetchJsonOnce(url, timeoutMs, headers)); }
-export function downloadToFile(url, destPath, timeoutMs) { return withMediaRetry(() => downloadOnce(url, destPath, timeoutMs)); }
+const unavailableDownloadHosts = new Map();
+export async function downloadToFile(url, destPath, timeoutMs) {
+    const host = new URL(url).hostname;
+    if ((unavailableDownloadHosts.get(host) ?? 0) > Date.now())
+        throw new VisualHttpError(`Download from ${host} is cooling down after repeated failures; try another source.`);
+    try {
+        const bytes = await withMediaRetry(() => downloadOnce(url, destPath, timeoutMs));
+        unavailableDownloadHosts.delete(host);
+        return bytes;
+    }
+    catch (error) {
+        if (/timed out|fetch failed|HTTP (429|5\d\d)/i.test(error.message))
+            unavailableDownloadHosts.set(host, Date.now() + 5 * 60_000);
+        throw error;
+    }
+}

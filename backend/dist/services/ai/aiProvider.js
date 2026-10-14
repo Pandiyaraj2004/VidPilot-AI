@@ -13,7 +13,11 @@ export async function fetchWithTimeout(url, init, timeoutMs, provider) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        return await fetch(url, { ...init, signal: controller.signal });
+        const response = await fetch(url, { ...init, signal: controller.signal });
+        // Providers may send headers well before their JSON is complete. Keep
+        // the deadline active while reading the body, not just the handshake.
+        const body = await response.arrayBuffer();
+        return new Response([204, 205, 304].includes(response.status) ? null : body, { status: response.status, statusText: response.statusText, headers: response.headers });
     }
     catch (err) {
         if (err instanceof Error && err.name === "AbortError") {

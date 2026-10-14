@@ -34,8 +34,8 @@ describe("normalizeEmotion", () => {
 });
 
 describe("clampSpeed", () => {
-  it("pulls a base speed outside the emotion's range into that range", () => {
-    expect(clampSpeed(1.0, [1.1, 1.3])).toBeCloseTo(1.1, 5);
+  it("allows slower delivery without accelerating the requested speed", () => {
+    expect(clampSpeed(1.0, [1.1, 1.3])).toBeCloseTo(1.0, 5);
     expect(clampSpeed(1.4, [0.85, 1.0])).toBeCloseTo(1.0, 5);
   });
 

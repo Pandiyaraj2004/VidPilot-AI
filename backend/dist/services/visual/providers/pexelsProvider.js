@@ -7,7 +7,7 @@ function pickVideoFile(files, maxHeight) {
     const mp4Files = files.filter((f) => f.file_type === "video/mp4" && f.link);
     if (mp4Files.length === 0)
         return null;
-    const sorted = [...mp4Files].sort((a, b) => a.height - b.height);
+    const sorted = [...mp4Files].sort((a, b) => b.height - a.height);
     const fitting = sorted.find((f) => f.height >= 360 && f.height <= maxHeight);
     return fitting ?? sorted[sorted.length - 1];
 }

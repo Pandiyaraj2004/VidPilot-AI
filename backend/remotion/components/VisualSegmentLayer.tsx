@@ -13,8 +13,8 @@
  * expensive per-frame computation beyond simple interpolation.
  */
 
-import { AbsoluteFill, Img, interpolate, OffthreadVideo, useCurrentFrame, useVideoConfig } from "remotion";
-import { ContentOverlay } from "./ContentOverlay";
+import { AbsoluteFill, Img, interpolate, OffthreadVideo, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
+
 
 export interface VisualSegmentProp {
   id: string;
@@ -169,9 +169,7 @@ export function VisualSegmentLayer({ segment }: VisualSegmentLayerProps) {
   const segProgress = (frame - segStartFrame) / segDurationFrames;
   const motionTransform = buildMotionTransform(segment.cameraMotion, segProgress) + buildTransitionBurstTransform(segment.transition, frame - segStartFrame);
 
-  const hasContent = segment.contentType !== "none";
-  // Show content overlay only in the middle portion of the segment
-  const contentVisible = segProgress >= 0.2 && segProgress <= 0.9;
+
 
   const isMedia = segment.mediaKind !== "color" && Boolean(segment.mediaUrl);
   const wrapperStyle: React.CSSProperties = {
@@ -190,7 +188,9 @@ export function VisualSegmentLayer({ segment }: VisualSegmentLayerProps) {
       <div style={wrapperStyle}>
         {isMedia ? (
           segment.mediaKind === "video" ? (
-            <OffthreadVideo src={segment.mediaUrl!} muted startFrom={Math.round(segStartFrame)} style={mediaStyle} />
+            <Sequence from={Math.round(segStartFrame)} durationInFrames={Math.max(1,Math.round((segment.endTime-segment.startTime)*fps))} layout="none">
+              <OffthreadVideo src={segment.mediaUrl!} muted startFrom={0} style={mediaStyle} />
+            </Sequence>
           ) : (
             <Img src={segment.mediaUrl!} style={mediaStyle} />
           )
@@ -209,16 +209,7 @@ export function VisualSegmentLayer({ segment }: VisualSegmentLayerProps) {
         />
       )}
 
-      {/* Content overlay (statistic, text card, quote) */}
-      {hasContent && contentVisible && (
-        <ContentOverlay
-          contentType={segment.contentType}
-          contentValue={segment.contentValue}
-          contentLabel={segment.contentLabel}
-          accentColor={segment.accentColor}
-          segmentProgress={segProgress}
-        />
-      )}
+
     </AbsoluteFill>
   );
 }

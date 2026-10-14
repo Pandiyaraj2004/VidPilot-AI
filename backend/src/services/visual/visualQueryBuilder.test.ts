@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import { buildSegmentQueries } from "./visualQueryBuilder.js";
 
 describe("buildSegmentQueries", () => {
+  it("never treats camera moves or decorative skies as banking footage",()=>{
+    expect(buildSegmentQueries({visualKeywords:["central bank building","dusk sky","push in","slow motion"],visualDescription:"bank at dusk",narration:"Central banks adjust interest rates."},3)).toEqual(["central bank building","central bank building","central bank building"]);
+  });
   it("uses AI-supplied visualKeywords verbatim when present", () => {
     const queries = buildSegmentQueries(
       { visualKeywords: ["human brain", "neurons firing"], visualDescription: "a description", narration: "narration" },

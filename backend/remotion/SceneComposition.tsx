@@ -1,3 +1,4 @@
+import { CinematicHeadline } from "./components/CinematicHeadline";
 import { AbsoluteFill, Audio, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 // Webpack asset imports (not staticFile()) — these fonts live outside the
 // public/ folder, next to the composition source, and webpack resolves
@@ -10,13 +11,13 @@ import notoSansHindiUrl from "../assets/fonts/hindi/NotoSansDevanagari-Variable.
 import notoSansTamilUrl from "../assets/fonts/tamil/NotoSansTamil-Variable.ttf";
 import { VisualSegmentLayer, type VisualSegmentProp } from "./components/VisualSegmentLayer";
 import { DynamicCaption, type SubtitleCueProp } from "./components/DynamicCaption";
-import { HookOverlay } from "./components/HookOverlay";
+
 import { getHorizontalMarginPx, getTitleBand } from "./layout/safeZones";
 
 export type VisualTemplate = "documentary" | "explainer" | "listicle" | "facts" | "cartoon";
 export type CaptionStyle = "normal" | "hook" | "emphasis" | "reveal" | "question";
 
-export interface SceneCompositionProps {
+export type SceneCompositionProps = {
   durationInSeconds: number;
   // Shorts-upgrade: the composition's real dimensions, read by
   // Root.tsx's calculateMetadata — every layout component below derives
@@ -219,51 +220,7 @@ export function SceneComposition(props: SceneCompositionProps) {
             <VisualSegmentLayer key={segment.id} segment={segment} />
           ))}
 
-          {/* Hook overlay — large staggered entrance text for the first scene.
-              Real per-scene energy (previously hardcoded to 0.8 for every
-              scene) now drives both its font size and, via
-              getCaptionPacing() inside HookOverlay itself, its reveal speed. */}
-          <HookOverlay
-            onScreenText={props.onScreenText}
-            accentColor={activeAccent}
-            fontFamily={fontFamily}
-            sceneRole={props.sceneRole}
-            emotion={props.emotion}
-            energy={props.energy ?? 0.5}
-          />
-
-          {/* On-screen text (non-hook scenes) — confined to the title band so it can never compete with DynamicCaption's bottom-anchored region. */}
-          {!isHookScene && props.onScreenText && (
-            <div
-              style={{
-                position: "absolute",
-                top: getTitleBand(height).top,
-                height: getTitleBand(height).height,
-                left: getHorizontalMarginPx(width),
-                right: getHorizontalMarginPx(width),
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                opacity: legacyEntrance,
-                transform: `translateY(${(1 - legacyEntrance) * 30}px)`,
-              }}
-            >
-              <div
-                style={{
-                  color: "#ffffff",
-                  fontSize: width * 0.0525,
-                  fontWeight: 700,
-                  textAlign: "center",
-                  textShadow: "0 4px 24px rgba(0,0,0,0.45)",
-                  lineHeight: 1.25,
-                  opacity: 0.9,
-                }}
-              >
-                {props.onScreenText}
-              </div>
-            </div>
-          )}
-
+          <CinematicHeadline text={props.onScreenText} accent={activeAccent} fontFamily={fontFamily} hook={isHookScene}/>
           {/* Dynamic caption with word-by-word kinetic reveal and emphasis pop */}
           <DynamicCaption
             subtitles={props.subtitles}

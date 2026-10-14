@@ -24,16 +24,17 @@ export interface SfxPlacement {
 export interface MixSceneAudioInput {
   narrationPath: string;
   musicPath?: string;
+  musicOffsetSeconds?: number;
   sfx?: SfxPlacement[];
   outputPath: string;
 }
 
 /** Builds the [1:a]...[music_pre] chain: loop the track to cover the full narration duration (works whether the source is shorter or longer), fade its edges, hold it under musicVolume before ducking is applied on top. */
-function musicPrepFilter(durationSeconds: number): string {
+function musicPrepFilter(durationSeconds: number, offsetSeconds=0): string {
   const fadeSeconds = Math.min(1, durationSeconds / 4);
   const fadeOutStart = Math.max(0, durationSeconds - fadeSeconds).toFixed(3);
   return (
-    `[1:a]aloop=loop=-1:size=2000000000,atrim=0:${durationSeconds.toFixed(3)},` +
+    `[1:a]aloop=loop=-1:size=2000000000,atrim=${offsetSeconds.toFixed(3)}:${(offsetSeconds+durationSeconds).toFixed(3)},asetpts=PTS-STARTPTS,` +
     `volume=${config.music.musicVolume},` +
     `afade=t=in:st=0:d=${fadeSeconds.toFixed(3)},afade=t=out:st=${fadeOutStart}:d=${fadeSeconds.toFixed(3)}[music_pre]`
   );
@@ -45,10 +46,11 @@ async function mixWithSidechainDucking(
   durationSeconds: number,
   sampleRate: number,
   channels: number,
-  outputPath: string
+  outputPath: string,
+  musicOffsetSeconds=0
 ): Promise<void> {
   const filterComplex = [
-    musicPrepFilter(durationSeconds),
+    musicPrepFilter(durationSeconds,musicOffsetSeconds),
     // sidechaincompress's inputs are [main][sidechain] — main is the signal that
     // actually gets compressed and appears in the output; the sidechain input is
     // only a control signal and is otherwise discarded. Music must be main
@@ -81,9 +83,10 @@ async function mixWithFixedAttenuation(
   durationSeconds: number,
   sampleRate: number,
   channels: number,
-  outputPath: string
+  outputPath: string,
+  musicOffsetSeconds=0
 ): Promise<void> {
-  const quieterMusic = `${musicPrepFilter(durationSeconds).replace(
+  const quieterMusic = `${musicPrepFilter(durationSeconds,musicOffsetSeconds).replace(
     `volume=${config.music.musicVolume}`,
     `volume=${(config.music.musicVolume * 0.5).toFixed(3)}`
   )}`;
@@ -153,7 +156,8 @@ export async function mixSceneAudio(input: MixSceneAudioInput): Promise<MixScene
         narrationMeta.durationSeconds,
         narrationMeta.sampleRate,
         narrationMeta.channels,
-        hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath
+        hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath,
+        Math.max(0,input.musicOffsetSeconds??0)
       );
       usedDynamicDucking = true;
     } catch (err) {
@@ -164,7 +168,8 @@ export async function mixSceneAudio(input: MixSceneAudioInput): Promise<MixScene
         narrationMeta.durationSeconds,
         narrationMeta.sampleRate,
         narrationMeta.channels,
-        hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath
+        hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath,
+        Math.max(0,input.musicOffsetSeconds??0)
       );
     }
     musicMixedPath = hasSfx ? `${input.outputPath}.music-tmp.wav` : input.outputPath;

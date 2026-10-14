@@ -130,6 +130,11 @@ describe("runQualityControl (real ffmpeg + real job data)", () => {
     const report = await runQualityControl(job);
     expect(report.status).toBe("FAIL");
   });
+  it("blocks a cinematic manual Short outside 50–60 seconds using measured duration",async()=>{
+    const file=path.join(dir,"short.mp4");await makeHealthyTestVideo(file,3);
+    const report=await runQualityControl(makeJob(file,{source:"manual",durationSeconds:55}));
+    expect(report.status).toBe("FAIL");expect(report.video.issues.some(i=>i.message.includes("50–60 seconds"))).toBe(true);
+  });
 
   it("a non-critical WARN in one category still allows overall WARN, not FAIL", async () => {
     const file = path.join(dir, "video.mp4");

@@ -16,6 +16,7 @@
  */
 
 import type { QualityCheckResult, QualityIssue, VideoScene } from "../../types/index.js";
+import {isSubjectQuery} from "../visual/visualQueryBuilder.js";
 
 export interface ContentQualityProvider {
   evaluateScene(scene: VideoScene): QualityIssue[];
@@ -47,6 +48,7 @@ export class LocalHeuristicProvider implements ContentQualityProvider {
 
     const issues: QualityIssue[] = [];
     for (const asset of realAssets) {
+      if(!isSubjectQuery(asset.query,scene.narration)){issues.push({severity:"error",sceneId:scene.id,message:`Stock query "${asset.query}" describes editing or unrelated atmosphere rather than the narration's subject.`});continue;}
       const queryWords = meaningfulWords(asset.query);
       const overlap = [...queryWords].some((w) => referenceWords.has(w));
       if (queryWords.size > 0 && !overlap) {
@@ -91,7 +93,7 @@ export function validateContentQuality(scenes: VideoScene[], provider: ContentQu
     }
   }
 
-  const status: QualityCheckResult["status"] = issues.length > 0 ? "WARN" : "PASS";
+  const status: QualityCheckResult["status"] = issues.some(i=>i.severity==="error"||i.severity==="critical")?"FAIL":issues.length > 0 ? "WARN" : "PASS";
 
   return {
     status,

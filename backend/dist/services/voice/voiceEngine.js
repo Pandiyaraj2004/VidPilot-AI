@@ -8,7 +8,7 @@ import { LocalSfxProvider } from "../audio/sfxProvider.js";
 import { assembleSceneAudio } from "./audioProcessor.js";
 import { readAudioMetadata } from "./audioMetadata.js";
 import { validateAudioFile } from "./audioValidator.js";
-import { ensureJobAudioDir, getSceneAudioPath } from "./audioStorage.js";
+import { ensureJobAudioDir, getSceneAudioPath, getJobAudioDir } from "./audioStorage.js";
 import { EdgeTtsProvider } from "./edgeTtsProvider.js";
 import { segmentNarrationForSynthesis } from "./narrationSegmenter.js";
 import { PiperProvider } from "./piperProvider.js";
@@ -104,6 +104,7 @@ export async function runVoiceGeneration(options, providerOverride) {
     const updatedScenes = [];
     const failedSceneIds = [];
     let totalDurationSeconds = 0;
+    let resolvedMusic;
     for (const scene of options.scenes) {
         if (!shouldProcess(scene, options)) {
             updatedScenes.push(scene);
@@ -117,13 +118,16 @@ export async function runVoiceGeneration(options, providerOverride) {
         let succeeded = false;
         const direction = deriveVoiceDirection(scene.emotion, scene.sceneRole);
         const appliedSpeed = clampSpeed(options.speed, direction.speedRange);
-        const sentences = segmentNarrationForSynthesis(scene.narration);
+        // Neural voices keep context/prosody across a scene and avoid one network
+        // handshake per sentence. Local Piper retains explicit sentence pauses.
+        const sentences = provider.name === "edge-tts" && scene.narration.trim()
+            ? [{ text: scene.narration.trim() }] : segmentNarrationForSynthesis(scene.narration);
         for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_SCENE; attempt++) {
             if (sentences.length === 0) {
                 lastErrorMessage = "Scene narration is empty.";
                 break; // matches invalid_input's non-retryable behavior without a wasted attempt
             }
-            const tempDir = await mkdtemp(path.join(tmpdir(), "vidpilot-voice-sentences-"));
+            const tempDir = await mkdtemp(path.join(getJobAudioDir(options.jobId), "sentences-"));
             try {
                 // Phase 6: synthesize each sentence separately so a deliberate,
                 // content-aware pause (voiceDirectionSystem.ts) can be spliced
@@ -162,7 +166,9 @@ export async function runVoiceGeneration(options, providerOverride) {
                 // for this folder, otherwise findTrackForMood returns null and
                 // mixSceneAudio just copies narration through untouched.
                 const musicFolder = musicFolderForCategory(options.contentCategory);
-                const musicTrack = await musicResolver.findTrackForMood(musicFolder, `${options.jobId}:${scene.id}`);
+                if (resolvedMusic === undefined)
+                    resolvedMusic = await musicResolver.findTrackForMood(musicFolder, options.jobId);
+                const musicTrack = resolvedMusic;
                 // SFX: real, sceneRole-driven triggers only (see planSfxTriggers) —
                 // resolved against whatever the user has actually placed in the
                 // manifest; a plan with no matching file is silently skipped, not
@@ -177,6 +183,7 @@ export async function runVoiceGeneration(options, providerOverride) {
                 const mixResult = await mixSceneAudio({
                     narrationPath: narrationOnlyPath,
                     musicPath: musicTrack?.filePath,
+                    musicOffsetSeconds: totalDurationSeconds,
                     sfx: sfxPlacements.length > 0 ? sfxPlacements : undefined,
                     outputPath,
                 });
@@ -185,7 +192,7 @@ export async function runVoiceGeneration(options, providerOverride) {
                 // against that, not a fixed guess (see audioValidator.ts).
                 const maxDeliberateGap = gapSecondsBetween.length > 0 ? Math.max(...gapSecondsBetween) : 0;
                 const validation = await validateAudioFile(outputPath, {
-                    maxInternalSilenceSeconds: Math.max(1.0, maxDeliberateGap + 0.5),
+                    maxInternalSilenceSeconds: Math.max(provider.name === "edge-tts" && (scene.narration.match(/[.!?।॥]+/g)?.length ?? 0) > 1 ? 1.5 : 1.0, maxDeliberateGap + 0.5),
                 });
                 if (!validation.valid || !validation.metadata) {
                     throw new VoiceProviderError("validation_failed", validation.errors.join(" "));
@@ -221,6 +228,8 @@ export async function runVoiceGeneration(options, providerOverride) {
             }
             catch (err) {
                 lastErrorMessage = err instanceof Error ? err.message : String(err);
+                if (provider.name === "edge-tts" && attempt + 1 < MAX_ATTEMPTS_PER_SCENE && /429|timed out|ECONNRESET/i.test(lastErrorMessage))
+                    await new Promise(resolve => setTimeout(resolve, 3000 * (attempt + 1)));
                 if (err instanceof VoiceProviderError && NON_RETRYABLE_KINDS.has(err.kind)) {
                     break;
                 }

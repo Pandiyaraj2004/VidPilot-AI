@@ -8,7 +8,7 @@ function pickVideoVariant(videos, maxHeight) {
     const variants = Object.values(videos).filter((v) => v && v.url);
     if (variants.length === 0)
         return null;
-    const sorted = [...variants].sort((a, b) => a.height - b.height);
+    const sorted = [...variants].sort((a, b) => b.height - a.height);
     const fitting = sorted.find((v) => v.height >= 360 && v.height <= maxHeight);
     return fitting ?? sorted[sorted.length - 1];
 }

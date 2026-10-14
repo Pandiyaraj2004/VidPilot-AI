@@ -11,7 +11,7 @@
  */
 
 import { config, isConfigured } from "../../config/env.js";
-import type { VisualAssetMetadata } from "../../types/index.js";
+import type { VisualAssetMetadata, VisualSegment } from "../../types/index.js";
 import { findAssetForQuery, type AssetSearchEngineDeps } from "./assetSearchEngine.js";
 import { toPublicMetadata, type CacheMeta } from "./assetCache.js";
 import { LocalVisualProvider } from "./localVisualProvider.js";
@@ -66,8 +66,10 @@ export class DynamicVisualProvider implements VisualProvider {
       excludeSourceKeys,
     };
 
-    const segments = await Promise.all(
-      base.segments.map(async (segment, i) => {
+    // Selection shares an exclusion set: parallel searches can reserve the
+    // same clip before either finishes. Resolve these dependent choices in order.
+    const segments:VisualSegment[]=[];
+    for(const [i,segment] of base.segments.entries()) {
         const query = queries[i];
         let result: { meta: CacheMeta; sourceKey: string } | null = null;
         try {
@@ -77,21 +79,20 @@ export class DynamicVisualProvider implements VisualProvider {
         }
 
         if (!result) {
-          return { ...segment, mediaKind: "color" as const, fallbackUsed: true };
+          segments.push({ ...segment, mediaKind: "color" as const, fallbackUsed: true });continue;
         }
 
         excludeSourceKeys.add(result.sourceKey);
         usedSourceKeys.push(result.sourceKey);
         assetsById.set(result.meta.id, toPublicMetadata(result.meta));
 
-        return {
+        segments.push({
           ...segment,
           mediaKind: result.meta.mediaType,
           assetId: result.meta.id,
           fallbackUsed: false,
-        };
-      })
-    );
+        });
+    }
 
     return {
       ...base,

@@ -140,6 +140,7 @@ export function deriveVoiceDirection(
 /** Nudges the job's own base speed into the emotion's comfortable range, then clamps to the global safe bounds — the user's choice is respected, never silently overridden outside those bounds. */
 export function clampSpeed(base: number, range: [number, number]): number {
   const [rangeMin, rangeMax] = range;
-  const nudged = Math.min(Math.max(base, rangeMin), rangeMax);
+  // Emotion may slow delivery, but never accelerate the requested base rate.
+  const nudged = Math.min(base, Math.min(Math.max(base, rangeMin), rangeMax));
   return Math.min(Math.max(nudged, MIN_VOICE_SPEED), MAX_VOICE_SPEED);
 }

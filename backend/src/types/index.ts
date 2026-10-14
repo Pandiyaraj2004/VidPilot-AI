@@ -298,6 +298,7 @@ export interface VideoContent {
 }
 
 export interface VideoJob {
+  restartRecoveries?: number;
   retentionManaged?: boolean;
   id: string;
   topic: string;

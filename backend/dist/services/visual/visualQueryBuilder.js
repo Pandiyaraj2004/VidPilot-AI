@@ -29,9 +29,19 @@ function fallbackQueries(visualDescription, narration) {
     const queries = [fromDescription, fromNarration].filter((q) => q.length > 0);
     return queries.length > 0 ? Array.from(new Set(queries)) : ["abstract background"];
 }
+/** Camera commands and decorative skies are not subjects to illustrate. */
+export function isSubjectQuery(query, narration) {
+    const q = query.toLowerCase().replace(/[_-]/g, " ").trim();
+    if (/^(push in|pull out|zoom in|zoom out|slow motion|wide shot|close up|tracking shot|aerial view|overhead|cinematic|dramatic lighting|golden hour)$/.test(q))
+        return false;
+    const atmosphere = { "dusk sky": /sky|dusk|night|space|moon/i, "storm clouds": /storm|cloud|weather/i, sunrise: /sun|dawn|morning/i, sunset: /sun|dusk|evening/i, "gentle waves": /wave|boat|river|ocean|sea/i, "city skyline": /city|skyline|urban/i };
+    if (atmosphere[q] && !atmosphere[q].test(narration))
+        return false;
+    return true;
+}
 /** Returns one query per segment index (queries rotate/cycle if fewer keywords than segments). */
 export function buildSegmentQueries(input, segmentCount) {
-    const keywords = (input.visualKeywords ?? []).map((k) => k.trim()).filter(Boolean);
+    const keywords = (input.visualKeywords ?? []).map((k) => k.trim()).filter(k => Boolean(k) && isSubjectQuery(k, input.narration));
     const pool = keywords.length > 0 ? keywords : fallbackQueries(input.visualDescription, input.narration);
     return Array.from({ length: segmentCount }, (_, i) => pool[i % pool.length]);
 }

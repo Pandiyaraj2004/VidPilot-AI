@@ -32,7 +32,7 @@ if (process.env.SERVE_DASHBOARD === "true")
 app.use(notFoundHandler);
 app.use(errorHandler);
 if (process.env.NODE_ENV !== "test" && process.env.MAINTENANCE_MODE !== "true" && process.env.SERVER_BOOTSTRAP !== "manual")
-    app.listen(config.port, async () => {
+    app.listen(config.port, process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1", async () => {
         console.info(`vidpilot ai listening on ${config.port}`);
         try {
             const cleanup = await runCleanup();

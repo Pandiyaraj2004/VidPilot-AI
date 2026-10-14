@@ -19,3 +19,5 @@ Use Node 22 or newer. In each of `backend` and `frontend`, run `npm ci`. Configu
 Backend checks: `npm run typecheck`, `npm test`, `npm run build`, `npm run size`. Frontend checks: `npx tsc -b`, `npm run lint`, `npm run build`.
 
 The backend uses committed precompiled `dist` for the existing Render deployment strategy. Rebuild it before deploying. Never deploy generated storage, local credentials, test fixtures or platform-incompatible binaries.
+
+Use **Generate & Upload Now** for one additional 50–60-second cinematic Short. It follows saved publishing visibility, uses the same QC-gated persistent queue, and does not update the next scheduled run. Repeated requests reuse an active manual job. Scheduled duration settings remain unchanged. Neural voices use natural scene-level synthesis, with bounded retries for provider outages. Install production dependencies normally so the checked-in Edge client compatibility patch runs during postinstall.

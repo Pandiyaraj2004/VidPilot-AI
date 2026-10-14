@@ -37,6 +37,11 @@ export async function generateVideoContent(ctx, providers = [new GeminiProvider(
                     continue;
                 }
                 const qualityErrors = [...validateContentQuality(parsed.value, ctx.durationSeconds), ...simpleEnglishIssues(parsed.value.scenes.map(s => s.narration).join(" "), ctx.language)];
+                if (ctx.targetNarrationWords) {
+                    const words = parsed.value.scenes.reduce((n, s) => n + s.narration.trim().split(/\s+/).length, 0);
+                    if (Math.abs(words - ctx.targetNarrationWords) > Math.max(5, ctx.targetNarrationWords * .08))
+                        qualityErrors.push(`Measured-voice word budget requires approximately ${ctx.targetNarrationWords} spoken words; received ${words}. Expand or shorten explanations while preserving facts and all required scenes.`);
+                }
                 if (qualityErrors.length > 0) {
                     lastErrorMessage = `${provider.name}: ${qualityErrors.join("; ")}`;
                     repairIssues = qualityErrors;

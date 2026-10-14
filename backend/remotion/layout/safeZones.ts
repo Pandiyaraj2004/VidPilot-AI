@@ -18,9 +18,9 @@
 export const TOP_SAFE_FRACTION = 0.06;
 export const TITLE_REGION_TOP_FRACTION = 0.08;
 export const TITLE_REGION_BOTTOM_FRACTION = 0.34;
-export const BOTTOM_PLATFORM_MARGIN_FRACTION = 0.12;
+export const BOTTOM_PLATFORM_MARGIN_FRACTION = 0.30;
 export const SUBTITLE_MAX_REGION_FRACTION = 0.25;
-export const HORIZONTAL_MARGIN_FRACTION = 0.06;
+export const HORIZONTAL_MARGIN_FRACTION = 0.10;
 
 export interface Band {
   /** Pixels from the top of the frame. */

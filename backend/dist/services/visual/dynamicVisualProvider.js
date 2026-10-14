@@ -52,7 +52,10 @@ export class DynamicVisualProvider {
             maxImageWidth: config.visuals.maxImageWidth,
             excludeSourceKeys,
         };
-        const segments = await Promise.all(base.segments.map(async (segment, i) => {
+        // Selection shares an exclusion set: parallel searches can reserve the
+        // same clip before either finishes. Resolve these dependent choices in order.
+        const segments = [];
+        for (const [i, segment] of base.segments.entries()) {
             const query = queries[i];
             let result = null;
             try {
@@ -62,18 +65,19 @@ export class DynamicVisualProvider {
                 console.error(`[VidPilot] Visual asset search errored for scene ${input.sceneId} segment ${i}: ${err.message}`);
             }
             if (!result) {
-                return { ...segment, mediaKind: "color", fallbackUsed: true };
+                segments.push({ ...segment, mediaKind: "color", fallbackUsed: true });
+                continue;
             }
             excludeSourceKeys.add(result.sourceKey);
             usedSourceKeys.push(result.sourceKey);
             assetsById.set(result.meta.id, toPublicMetadata(result.meta));
-            return {
+            segments.push({
                 ...segment,
                 mediaKind: result.meta.mediaType,
                 assetId: result.meta.id,
                 fallbackUsed: false,
-            };
-        }));
+            });
+        }
         return {
             ...base,
             segments,

@@ -14,6 +14,7 @@
  * spend for a nice-to-have double-check the deterministic heuristic
  * already covers reasonably; not "genuinely necessary" for this phase.
  */
+import { isSubjectQuery } from "../visual/visualQueryBuilder.js";
 const STOPWORDS = new Set([
     "the", "a", "an", "of", "in", "on", "at", "to", "for", "and", "or", "is", "are", "was", "were",
     "with", "by", "from", "as", "its", "it", "this", "that", "your", "you", "how", "what", "why",
@@ -38,6 +39,10 @@ export class LocalHeuristicProvider {
             return [];
         const issues = [];
         for (const asset of realAssets) {
+            if (!isSubjectQuery(asset.query, scene.narration)) {
+                issues.push({ severity: "error", sceneId: scene.id, message: `Stock query "${asset.query}" describes editing or unrelated atmosphere rather than the narration's subject.` });
+                continue;
+            }
             const queryWords = meaningfulWords(asset.query);
             const overlap = [...queryWords].some((w) => referenceWords.has(w));
             if (queryWords.size > 0 && !overlap) {
@@ -77,7 +82,7 @@ export function validateContentQuality(scenes, provider = new LocalHeuristicProv
             }
         }
     }
-    const status = issues.length > 0 ? "WARN" : "PASS";
+    const status = issues.some(i => i.severity === "error" || i.severity === "critical") ? "FAIL" : issues.length > 0 ? "WARN" : "PASS";
     return {
         status,
         details: { scenesChecked: scenes.length },

@@ -133,6 +133,8 @@ function buildGenerationContext(job: VideoJob, extra?: Partial<GenerationContext
     durationSeconds: job.durationSeconds,
     language: job.language,
     visualStyle: job.visualStyle,
+    ...(job.source==="manual"&&job.durationSeconds>=50&&job.durationSeconds<=60&&job.language==="en"&&getVoiceById(job.voiceId)?.provider==="edge-tts"
+      ? {targetNarrationWords:Math.round(Math.max(53,Math.min(57,job.durationSeconds))*155/60)} : {}),
     ...extra,
   };
 }
@@ -198,7 +200,7 @@ export function createJobOrchestrator(
       throw new ValidationError("Only a failed job can be retried.");
     }
     if (job.youtube?.status === "uncertain") throw new ValidationError("Reconcile the uncertain upload before retrying.");
-    return repo.updateJob(id, {status:"queued",attempts:0,nextAttemptAt:null});
+    return repo.updateJob(id, {status:"queued",attempts:0,restartRecoveries:0,nextAttemptAt:null});
   }
 
   async function getRecentFingerprints(excludeId: string): Promise<ContentFingerprint[]> {
@@ -270,14 +272,14 @@ export function createJobOrchestrator(
     return runGeneration(job);
   }
 
-  async function regenerateScript(id: string, instruction?: string): Promise<VideoJob> {
+  async function regenerateScript(id: string, instruction?: string, targetNarrationWords?:number): Promise<VideoJob> {
     const job = await getJobOrThrow(id);
     if (!REGENERATABLE_STATUSES.includes(job.status)) {
       throw new ValidationError(
         `A job in "${job.status}" status cannot be regenerated — it must have a script already, or have failed.`
       );
     }
-    return runGeneration(job, instruction ? { instruction } : undefined);
+    return runGeneration(job, instruction ? { instruction,targetNarrationWords,inputScript:job.content?.scenes.map(s=>s.narration).join("\n\n")??job.inputScript } : undefined);
   }
 
   async function runVoiceStage(
@@ -318,9 +320,10 @@ export function createJobOrchestrator(
           generatedAt: new Date().toISOString(),
           totalDurationSeconds: result.totalDurationSeconds,
         },
+        videoRender:null,qualityReport:null,
         lastError: result.allReady
           ? null
-          : `Voice generation failed for ${result.failedSceneIds.length} of ${job.content.scenes.length} scene(s).`,
+          : `Voice generation failed for ${result.failedSceneIds.length} of ${job.content.scenes.length} scene(s): ${result.scenes.filter(s=>s.audio?.status==="failed").map(s=>`${s.id}: ${s.audio?.error??"No audio returned"}`).join("; ")}`,
         retryCount: job.retryCount + 1,
       });
     } catch (err) {
@@ -405,6 +408,7 @@ export function createJobOrchestrator(
         content: { ...job.content, scenes: visualResult.scenes },
         status: nextStatus,
         lastError: visualResult.allReady ? null : `Visual generation failed for scene ${sceneId}.`,
+        videoRender:null,qualityReport:null,
         retryCount: job.retryCount + 1,
       });
     } catch (err) {

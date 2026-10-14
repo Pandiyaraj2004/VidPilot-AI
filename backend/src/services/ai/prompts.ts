@@ -12,6 +12,7 @@ export interface GenerationContext {
   visualStyle: VisualStyle;
   /** Optional user instruction for a regeneration pass, e.g. "make the hook stronger". */
   instruction?: string;
+  targetNarrationWords?: number;
   /** Recently generated videos to deliberately avoid repeating the angle, structure, hook, or visual style of. */
   avoidSimilarTo?: {
     title: string;
@@ -65,7 +66,7 @@ export function buildSystemPrompt(): string {
 
 export function buildUserPrompt(ctx: GenerationContext): string {
   const targetMinutes = ctx.durationSeconds / 60;
-  const targetWords = Math.round(targetMinutes * WORDS_PER_MINUTE);
+  const targetWords = ctx.targetNarrationWords ?? Math.round(targetMinutes * WORDS_PER_MINUTE);
   const languageName = LANGUAGE_NAMES[ctx.language] ?? ctx.language;
 
   const lines: string[] = ["A clear nonempty conclusion is required. IDs must be strings. Include estimatedDuration for every scene and the total. The opening and ending must appear in spoken scene narration, not only metadata."];
@@ -86,19 +87,19 @@ export function buildUserPrompt(ctx: GenerationContext): string {
     `Video style: ${ctx.style}. ${STYLE_GUIDANCE[ctx.style]}`,
     `Visual style: ${ctx.visualStyle}. ${VISUAL_STYLE_GUIDANCE[ctx.visualStyle]}`,
     `Language: write the title, hook, introduction, all scene narration and on-screen text, conclusion, description, and tags entirely in ${languageName}.`,
-    `Target total narration length: approximately ${targetWords} words across all scenes combined (about ${targetMinutes.toFixed(1)} minutes at ~${WORDS_PER_MINUTE} words/minute). Set each scene's estimatedDuration based on its narration, and top-level estimatedDuration to their sum.`,
+    `Target total narration length: ${targetWords} words across all scenes combined, within 5%. ${ctx.targetNarrationWords?"This word budget was calibrated from measured narration; it overrides generic speaking-speed estimates.":`About ${targetMinutes.toFixed(1)} minutes at ~${WORDS_PER_MINUTE} words/minute.`} Set each scene's estimatedDuration based on its narration, and top-level estimatedDuration to their sum.`,
     "Top-level Director Fields to set:",
     "  storyStructure (string) — the chosen narrative structure out of: hook_reveal, story_conflict, question_investigation, problem_solution, timeline, myth_truth, what_if, mystery_clues, before_after, claim_counterpoint, fast_list, slow_documentary, mini_case_study.",
     "  hookType (string) — category of opening hook: unexpected_fact, strong_question, contradiction, story_moment, visual_mystery, bold_claim.",
     "  ctaPattern (string) — pattern used for conclusion/CTA: topic_question, comment_invite, continuation, subscribe_reason, none.",
     "For each scene, include:",
-    "  id, order, narration, visualDescription, onScreenText, estimatedDuration.",
+    "  id, order, narration, visualDescription, onScreenText, estimatedDuration. onScreenText is a concise 3–6 word editorial headline, never a duplicate of the full narration.",
     "  emotion (string) — curiosity | motivation | mystery | excitement | calm | dramatic | informative | surprise | serious | humorous.",
     "  energy (number 0.0–1.0) — pacing intensity.",
     "  sceneRole (string) — hook | question | clue | reveal | fact | build | action | conclusion | transition.",
     "  highlightWords (array of 1–5 strings) — key words to emphasize in captions.",
     "  musicMood (string) — curious | energetic | mysterious | calm | dramatic | uplifting | serious.",
-    "  visualKeywords (array of 2–6 strings) — concrete, highly specific search terms (e.g. ['human brain synaptic impulse', 'neural connection animation'] instead of ['brain']).",
+    "  visualKeywords (array of 2–6 strings) — English search terms for concrete subjects directly illustrating the narration. Camera moves, slow motion, lighting and unrelated sky/cloud/sunset decoration must never be standalone search terms. For banking, use bank entrances, shoppers, price labels or loan documents as appropriate, not generic scenery.",
     "  cameraMovement (string) — camera framing/motion for visual renderer: static | push_in | pull_out | tracking | close_up | overhead | wide_shot.",
     "  editorialNote (string) — brief note explaining the human editorial choice or comparison in this scene."
   );

@@ -1,4 +1,5 @@
 import type { VideoContentParsed } from "./schema.js";
+import {isSubjectQuery} from "../visual/visualQueryBuilder.js";
 
 const MIN_SCENE_NARRATION_WORDS = 6;
 const DURATION_TOLERANCE_MIN = 0.4;
@@ -55,6 +56,7 @@ export function validateContentQuality(content: VideoContentParsed, requestedDur
     }
 
     content.scenes.forEach((scene, index) => {
+      if(scene.visualKeywords?.some(k=>!isSubjectQuery(k,scene.narration)))errors.push(`Scene ${index+1}: visualKeywords must describe the spoken subject, not camera moves or unrelated decorative atmosphere.`);
       if (!scene.narration.trim()) errors.push(`Scene ${index + 1} narration is empty.`);
       else if (wordCount(scene.narration) < MIN_SCENE_NARRATION_WORDS) {
         errors.push(`Scene ${index + 1} narration is too short to be useful.`);

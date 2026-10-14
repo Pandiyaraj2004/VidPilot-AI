@@ -1,6 +1,7 @@
 import {afterAll,beforeAll,expect,it,vi} from "vitest";
 import type {Server} from "node:http";
-vi.mock("./services/youtube/index.js",()=>({youtubeProvider:{isConnected:async()=>false,isConfigured:()=>false}}));
+vi.mock("./services/youtube/index.js",()=>({youtubeProvider:{isConnected:vi.fn(async()=>false),isConfigured:()=>false}}));
+import { youtubeProvider } from "./services/youtube/index.js";
 import {app} from "./server.js";
 import { jobRepository } from "./services/jobs/index.js";
 import { runtimeState } from "./services/runtime/state.js";
@@ -11,6 +12,18 @@ it("rejects unauthenticated access to jobs",async()=>{expect((await fetch(base+"
 it("opens the local workspace without a login page or password",async()=>{const response=await fetch(base+"/session/local",{method:"POST",headers:{Origin:"http://127.0.0.1:5173"}});expect(response.status).toBe(200);expect(response.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5173");const local=await response.json() as {token:string};expect((await fetch(base+"/workspace",{headers:{Authorization:`Bearer ${local.token}`}})).status).toBe(200);});
 it("does not grant automatic local access to external origins or forwarded requests",async()=>{for(const headers of [{Origin:"https://unrelated.example"},{Origin:"http://localhost:5173","X-Forwarded-For":"198.51.100.2"}])expect((await fetch(base+"/session/local",{method:"POST",headers:headers as Record<string,string>})).status).toBe(403);});
 it("serves the dashboard contract without credentials",async()=>{const response=await fetch(base+"/workspace",{headers:{Authorization:`Bearer ${token}`}});expect(response.status).toBe(200);const data=await response.json();expect(data).toHaveProperty("storage.limitBytes",500000000);expect(data).toHaveProperty("overview.active",0);expect(JSON.stringify(data)).not.toContain("isolated-test-password");});
+it("one-click generation preserves the schedule, uses 50–60 seconds and deduplicates repeated requests",async()=>{
+ vi.mocked(youtubeProvider.isConnected).mockResolvedValue(true);
+ const headers={Authorization:`Bearer ${token}`,"Content-Type":"application/json"};
+ const before=await(await fetch(base+"/automation",{headers})).json() as {config:{youtubeVisibility:string}};
+ const r=await fetch(base+"/automation/run-now",{method:"POST",headers});expect(r.status).toBe(202);
+ const created=await r.json() as {jobId:string};const job=await jobRepository.getJob(created.jobId);
+ expect(job).toMatchObject({source:"manual",voiceSpeed:1,youtubeVisibility:before.config.youtubeVisibility});
+ expect(job!.durationSeconds).toBeGreaterThanOrEqual(50);expect(job!.durationSeconds).toBeLessThanOrEqual(60);
+ const again=await(await fetch(base+"/automation/run-now",{method:"POST",headers})).json();expect(again).toMatchObject({jobId:created.jobId,reused:true});
+ const after=await(await fetch(base+"/automation",{headers})).json() as {config:unknown};expect(after.config).toEqual(before.config);
+ await jobRepository.updateJob(created.jobId,{status:"cancelled"});vi.mocked(youtubeProvider.isConnected).mockResolvedValue(false);
+});
 it("accepts a manual job and returns it in the queue",async()=>{const headers={Authorization:`Bearer ${token}`,"Content-Type":"application/json"};const response=await fetch(base+"/jobs",{method:"POST",headers,body:JSON.stringify({topic:"Why the moon shines",style:"explainer",contentCategory:"science",durationSeconds:35,language:"en",voiceId:"en_US-amy-medium",voiceSpeed:1,visualStyle:"cinematic",subtitlesEnabled:true,youtubeVisibility:"private"})});expect(response.status).toBe(201);expect(await response.json()).toMatchObject({status:"queued",retentionManaged:true});const result=await fetch(base+"/workspace",{headers});const workspace=await result.json() as {overview:{active:number};jobs:unknown[]};expect(workspace.overview.active).toBe(1);expect(workspace.jobs).toContainEqual(expect.objectContaining({category:"science",language:"en",voiceId:"en_US-amy-medium",style:"explainer",durationSeconds:35}));});
 it("does not expose removed routes",async()=>{expect((await fetch(base+"/telegram/webhook",{method:"POST",headers:{Authorization:`Bearer ${token}`}})).status).toBe(404);});
 it("clears selected terminal history only and preserves publication identifiers",async()=>{

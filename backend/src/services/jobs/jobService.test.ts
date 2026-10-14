@@ -271,6 +271,7 @@ describe("voice generation state machine", () => {
     const service = createJobOrchestrator(repo, async () => fakeContent(), async () => {
       throw new Error("voice unavailable for this language");
     });
+
     const job = await service.createJob(BASE_INPUT);
     await service.processQueuedJob(job.id);
 
@@ -281,14 +282,24 @@ describe("voice generation state machine", () => {
     expect(failed.lastError).toContain("voice unavailable");
   });
 
+    it("passes the previous spoken script and measured word budget when repairing duration",async()=>{
+      const contexts:import("../ai/prompts.js").GenerationContext[]=[];
+      const service=createJobOrchestrator(repo,async ctx=>{contexts.push(ctx);return fakeContent();});
+      const job=await service.createJob(BASE_INPUT);await service.processQueuedJob(job.id);
+      await service.regenerateScript(job.id,"Fit the measured duration",135);
+      expect(contexts.at(-1)).toMatchObject({targetNarrationWords:135,inputScript:fakeContent().content.scenes.map(s=>s.narration).join("\n\n")});
+    });
+
   it("allows regenerateVoiceForJob from VOICE_READY", async () => {
     const service = createJobOrchestrator(repo, async () => fakeContent(), fakeVoiceSuccess());
     const job = await service.createJob(BASE_INPUT);
     await service.processQueuedJob(job.id);
     await service.generateVoiceForJob(job.id);
+    await repo.updateJob(job.id,{videoRender:{status:"ready"} as VideoJob["videoRender"],qualityReport:{status:"PASS"} as QualityReport});
 
     const regenerated = await service.regenerateVoiceForJob(job.id);
     expect(regenerated.status).toBe("voice_ready");
+    expect(regenerated.videoRender).toBeNull();expect(regenerated.qualityReport).toBeNull();
   });
 
   it("does not touch the script when regenerating voice", async () => {
