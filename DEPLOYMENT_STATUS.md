@@ -1,5 +1,9 @@
 # Deployment verification — 14 October 2026
 
+Latest update: commit `b6365ef` removed the dashboard's private-link and 12-hour session requirements at the owner's explicit request. Render deployment `dep-db7rloe7bikc73bttl4g` is live; Vercel production deployment `dpl_HUYP3S5o897oaG3LtLeG1vGYsZv4` is READY on the normal website domain. The earlier deployment details below remain as audit history.
+
+The public-access update passed backend/frontend TypeScript checks, production builds, frontend lint and 12 targeted access/API tests. Live unauthenticated workspace and YouTube status requests returned HTTP 200; maintenance cleanup without its credential returned HTTP 401. Browser verification confirmed real dashboard data and the Generate button without a private link. Automatic scheduling was unchanged.
+
 ## Live services
 
 - Frontend: https://vidpilotai-sigma.vercel.app
@@ -33,11 +37,7 @@ Browser verification of the authenticated production page showed live history in
 
 ## Access and limits
 
-There is no application login page. Remote access requires the existing signed private workspace link, which expires after 12 hours. A fresh link is saved in the ignored local `maintenance/production-workspace-link.txt`; treat it like a password. Regenerate from backend with:
-
-```powershell
-node scripts/private-link.mjs https://vidpilotai-sigma.vercel.app
-```
+There is no application login page, private-link requirement or dashboard session expiry in the current deployment. Render uses `PUBLIC_DASHBOARD=true`; Vercel uses `VITE_PUBLIC_DASHBOARD=true`. Dashboard control access is public, including settings and video generation/upload actions. Provider secrets remain backend-only, and maintenance cleanup remains protected. Obsolete generated local private-link shortcuts were removed. The optional private-access implementation remains inactive and can be restored later by disabling both flags and redeploying.
 
 Render runs API-only (`WORKER_ENABLED=false`), using shared Supabase state and the same encryption/session keys as the existing PC worker. Rendering and scheduled generation still require that PC awake and connected. Free Render sleeps when idle; always-on cloud rendering has not been established within its free limits. Current YouTube credentials work; future cloud OAuth reconnection requires the Render callback URL to be registered in Google OAuth settings.
 
