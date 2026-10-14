@@ -24,6 +24,9 @@ export function login(req:Request,res:Response):void {
 }
 export function authenticate(req:Request,res:Response,next:NextFunction):void {
  if(req.method==="POST"&&req.path==="/maintenance/cleanup"&&process.env.RETENTION_TOKEN&&equal(req.headers.authorization??"",`Bearer ${process.env.RETENTION_TOKEN}`)){next();return;}
+ // Public dashboard access is an explicit owner choice. Maintenance still
+ // requires its dedicated credential or an authenticated administrator.
+ if(process.env.PUBLIC_DASHBOARD==="true"&&!req.path.startsWith("/maintenance/")){next();return;}
  if(req.path==="/youtube/callback"){next();return;}
  const until=String(req.query.until??""),sig=String(req.query.sig??"");
  if(req.method==="GET"&&/^\/jobs\/[^/]+\/(?:scenes\/[^/]+\/audio|visuals\/[^/]+)$/.test(req.path)&&Number(until)>Date.now()&&equal(sig,sign("/api"+req.path+until))){next();return;}

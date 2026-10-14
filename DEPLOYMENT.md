@@ -1,5 +1,9 @@
 # Deployment and maintenance
 
+## Current dashboard access
+
+At the owner's explicit request, the deployed dashboard uses `PUBLIC_DASHBOARD=true` on Render and `VITE_PUBLIC_DASHBOARD=true` on Vercel. The normal website URL works without private links, browser sessions or dashboard expiry. This is public control access: visitors can read dashboard data, change settings and queue video generation/uploads. Provider keys and OAuth tokens remain backend-only, and maintenance cleanup still requires its credential or authenticated administrator access. To restore private-link access later, disable both flags and redeploy the frontend; the private implementation remains available but inactive in public mode. Application scheduling and QC requirements are unchanged.
+
 ## Required setup
 
 1. Use Node 22+. Install with `npm ci` for development; build using `npm run build`. Preserve the existing precompiled `backend/dist` deployment strategy. Use `npm ci --omit=dev` on the API deployment.

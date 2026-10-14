@@ -45,6 +45,12 @@ export function authenticate(req, res, next) {
         next();
         return;
     }
+    // Public dashboard access is an explicit owner choice. Maintenance still
+    // requires its dedicated credential or an authenticated administrator.
+    if (process.env.PUBLIC_DASHBOARD === "true" && !req.path.startsWith("/maintenance/")) {
+        next();
+        return;
+    }
     if (req.path === "/youtube/callback") {
         next();
         return;
