@@ -23,6 +23,7 @@ export default function Workspace(){
   const result=await response.json();if(!response.ok){if(response.status===401){sessionStorage.removeItem('vidpilot-session');setToken('');}throw new Error(result.error??'Request failed');}return result as T;
  },[token]);
  const refresh=useCallback(async()=>{try{setData(await request<Data>('/workspace'));setError('');}catch(e){setError((e as Error).message);}},[request]);
+ // oxlint-disable-next-line react/set-state-in-effect -- State writes follow asynchronous API responses; this effect polls external data.
  useEffect(()=>{if(!token)return;void refresh();void request<Voice[]>('/voices').then(setVoices).catch(e=>setError(e.message));void request<{connected:boolean;error?:string|null}>('/youtube/status').then(r=>{setConnected(r.connected);if(r.error)setError(r.error);}).catch(e=>setError(e.message));const t=setInterval(()=>void refresh(),5000);return()=>clearInterval(t);},[token,refresh,request]);
  const action=async(fn:()=>Promise<unknown>,reload=true)=>{setBusy(true);try{await fn();if(reload)await refresh();}catch(e){setError((e as Error).message);}finally{setBusy(false);}};
 
