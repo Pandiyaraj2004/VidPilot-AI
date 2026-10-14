@@ -58,7 +58,7 @@ The full runtime does not meet 500 MB. Linux measurement was attempted but WSL f
 
 ## Validation evidence
 
-- Full backend run before the final three regression additions: 452/452 passed, including real FFmpeg checks (maintenance/backend-tests-final-verified.json).
+- Full backend run before the final three regression additions: 452/452 passed, including real FFmpeg checks (superseded by the final 455-test report).
 - Latest targeted auth, retention/reset, scheduler and schema run: 25/25 passed (maintenance/final-targeted-tests.json).
 - Upload/video-quality regression: 40/40 passed (maintenance/upload-regression-tests.json).
 - Backend TypeScript and production build passed. Frontend TypeScript, lint and production build passed; JS 207.74 kB (65.48 kB gzip).
@@ -66,7 +66,7 @@ The full runtime does not meet 500 MB. Linux measurement was attempted but WSL f
 - Real generated output QC and provider upload verification: maintenance/video-validation-result.json and maintenance/youtube-unlisted-result.json.
 - Final complete backend suite after all changes: 455/455 passed, zero failures (maintenance/backend-tests-final.json).
 
-Changed/deleted inventories in maintenance/changed-files.txt and new-files.txt include the initial working changes. Main implementation areas: backend services/jobs, scheduler, runtime, storage, maintenance, ai and youtube; auth/routes; SQL migration; frontend Workspace/styles; build/deployment scripts and package locks. Compiled dist was rebuilt without stale removed modules. No Git index rewrite was performed.
+The Git commit history records changed and deleted files, including the initial working changes. Main implementation areas: backend services/jobs, scheduler, runtime, storage, maintenance, ai and youtube; auth/routes; SQL migration; frontend Workspace/styles; build/deployment scripts and package locks. Compiled dist was rebuilt without stale removed modules. No Git index rewrite was performed.
 
 Example of the required simple-English style: “The Moon does not make its own light. It reflects light from the Sun. As it moves around Earth, we see different parts of its bright side.” This illustrates the writing rule, not a claim that this exact wording was generated in the uploaded video.
 
@@ -78,3 +78,5 @@ Vercel connection inspection (14 October): the connected account lists five proj
 
 Pre-deployment refinement: scheduled videos now rotate supported production styles and avoid the immediately previous target duration when the configured range allows it. Language, compatible voice and category continue least-recently-used rotation. Style and duration are saved in automation history. Configured publishing visibility is preserved (current/default Public). History supports checkbox selection, select-all matching results, Clear selected and Clear all, with confirmation; active jobs, YouTube videos and publication identifiers remain protected. Frontend typecheck/lint/build passed; scheduler and history API regression tests run separately from the earlier 455-test baseline.
 Refinement verification: all 16 scheduler/variation/history API tests passed. Backend TypeScript passed; production backend and frontend builds passed. No real history entries were cleared during testing.
+
+Repository housekeeping: removed 32 verified obsolete scripts, test artifacts, superseded local logs and outdated audit documents (914,846 bytes), plus empty historical media directories. Reset manifests, the final test report, publication proof, credentials, settings, runtime binaries, voices and deployment output were retained.
