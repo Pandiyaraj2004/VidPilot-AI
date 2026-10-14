@@ -28,7 +28,7 @@ backend/vendor/
 backend/storage/
 
 # Audit snapshots and test artifacts remain local.
-maintenance/
+/maintenance/
 maintenance/baseline-*.patch
 maintenance/npm-cache/
 maintenance/*-tests.json
