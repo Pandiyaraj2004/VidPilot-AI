@@ -1,0 +1,14 @@
+node_modules
+storage
+data
+.env*
+*.wav
+*.mp4
+*.log
+inspect_output.txt
+**/*.test.ts
+**/*.map
+vendor/**/ffplay*
+vendor/**/*.html
+vendor/**/*.md
+vendor/**/*.txt

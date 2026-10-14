@@ -1,6 +1,6 @@
 /**
  * Backend-only YouTube provider abstraction (Phase 11) — mirrors the
- * project's existing TelegramProvider/VisualProvider pattern: the upload
+ * project's existing VisualProvider pattern: the upload
  * workflow (youtubeUploadService.ts, jobService.ts) depends only on this
  * interface, never on the Google APIs client directly.
  * YouTubeDataApiProvider (youtubeDataApiProvider.ts) is the one real
@@ -46,6 +46,7 @@ export interface YouTubeProvider {
   isConfigured(): boolean;
   /** True when a real, usable (or refreshable) token is on file. */
   isConnected(): Promise<boolean>;
+  getConnectionError?():Promise<string|null>;
   /** Builds the real Google consent-screen URL for the minimum required scopes (youtube.upload + youtube.readonly). */
   getAuthUrl(state: string): string;
   /** Exchanges a real authorization code for tokens, persists them, and returns the real connected channel. */
@@ -54,8 +55,6 @@ export interface YouTubeProvider {
   getChannelInfo(): Promise<YouTubeChannelInfo | null>;
   /** Revokes the token with Google where possible and always clears local storage, even if the revoke call itself fails (e.g. already revoked). */
   disconnect(): Promise<void>;
-  /** Real resumable upload via videos.insert. Never called unless the caller has already run the full approval gate. */
+  /** Real resumable upload via videos.insert. Never called unless the caller has already run the mandatory QC PASS gate. */
   uploadVideo(input: { filePath: string; metadata: YouTubeUploadMetadata }): Promise<{ videoId: string }>;
-  /** Real thumbnails.set call — kept separate from uploadVideo so a thumbnail failure never implies the video upload also failed. */
-  uploadThumbnail(videoId: string, thumbnailPath: string): Promise<void>;
 }

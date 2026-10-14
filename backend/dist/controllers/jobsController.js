@@ -1,0 +1,269 @@
+import fs from "node:fs";
+import path from "node:path";
+import * as jobService from "../services/jobs/jobService.js";
+import { cacheAssetPath, readCachedAsset } from "../services/visual/assetCache.js";
+import { isSupabaseConfigured } from "../services/supabase/index.js";
+import { downloadFromSupabaseBucket } from "../services/supabase/storage.js";
+export async function createJobHandler(req, res, next) {
+    try {
+        const job = await jobService.createJob(req.body);
+        res.status(201).json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function listJobsHandler(req, res, next) {
+    try {
+        const status = typeof req.query.status === "string" ? req.query.status : undefined;
+        const search = typeof req.query.search === "string" ? req.query.search : undefined;
+        const jobs = await jobService.listJobs({ status, search });
+        res.json(jobs);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function getLatestJobHandler(_req, res, next) {
+    try {
+        const jobs = await jobService.listJobs({ limit: 1 });
+        if (jobs.length === 0) {
+            res.status(404).json({ error: "No jobs found." });
+            return;
+        }
+        // listJobs returns jobs ordered newest-first (desc by createdAt)
+        res.json(jobs[0]);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function getJobHandler(req, res, next) {
+    try {
+        const job = await jobService.getJobOrThrow(req.params.id);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function cancelJobHandler(req, res, next) {
+    try {
+        const job = await jobService.cancelJob(req.params.id);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function retryJobHandler(req, res, next) {
+    try {
+        const job = await jobService.retryJob(req.params.id);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function generateScriptHandler(req, res, next) {
+    try {
+        const job = await jobService.processQueuedJob(req.params.id);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function regenerateScriptHandler(req, res, next) {
+    try {
+        const instruction = typeof req.body?.instruction === "string" ? req.body.instruction : undefined;
+        const job = await jobService.regenerateScript(req.params.id, instruction);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function generateVoiceHandler(req, res, next) {
+    try {
+        const job = await jobService.generateVoiceForJob(req.params.id);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function regenerateVoiceHandler(req, res, next) {
+    try {
+        const job = await jobService.regenerateVoiceForJob(req.params.id);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function regenerateSceneVoiceHandler(req, res, next) {
+    try {
+        const job = await jobService.regenerateVoiceForScene(req.params.id, req.params.sceneId);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function getSceneAudioHandler(req, res, next) {
+    try {
+        // The file served is always the path the server itself generated and
+        // stored on the job — sceneId only selects which of the job's own
+        // scenes to look up, so a client can never point this at an arbitrary
+        // filesystem path.
+        const job = await jobService.getJobOrThrow(req.params.id);
+        const scene = job.content?.scenes.find((candidate) => candidate.id === req.params.sceneId);
+        if (!scene || scene.audio?.status !== "ready" || !scene.audio.path) {
+            res.status(404).json({ error: "No audio is available for this scene." });
+            return;
+        }
+        const localPath = scene.audio.path;
+        // Download from Supabase if not present locally
+        if (!fs.existsSync(localPath) && isSupabaseConfigured()) {
+            try {
+                const filename = path.basename(localPath);
+                const bucketPath = `${req.params.id}/audio/${filename}`;
+                const buffer = await downloadFromSupabaseBucket("voice-audio", bucketPath);
+                await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
+                await fs.promises.writeFile(localPath, buffer);
+            }
+            catch (err) {
+                console.error(`[VidPilot] Failed to download scene audio from Supabase: ${err.message}`);
+            }
+        }
+        res.sendFile(localPath, (err) => {
+            if (err)
+                next(err);
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function regenerateSceneVisualHandler(req, res, next) {
+    try {
+        const job = await jobService.regenerateVisualsForScene(req.params.id, req.params.sceneId);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function getVisualAssetHandler(req, res, next) {
+    try {
+        // Same pattern as getSceneAudioHandler: assetId only selects among the
+        // assets this job's own scenes already reference — a client can never
+        // point this at an arbitrary cache entry, let alone an arbitrary path.
+        const job = await jobService.getJobOrThrow(req.params.id);
+        const assetId = req.params.assetId;
+        const owned = job.content?.scenes.some((scene) => scene.visual?.assets?.some((asset) => asset.id === assetId));
+        if (!owned) {
+            res.status(404).json({ error: "No visual asset is available with this id for this job." });
+            return;
+        }
+        const meta = await readCachedAsset(assetId);
+        if (!meta) {
+            res.status(404).json({ error: "No visual asset is available with this id for this job." });
+            return;
+        }
+        const localPath = cacheAssetPath(meta.id, meta.ext);
+        if (!fs.existsSync(localPath) && isSupabaseConfigured()) {
+            try {
+                const bucketPath = `${meta.id}/asset${meta.ext}`;
+                const buffer = await downloadFromSupabaseBucket("visual-cache", bucketPath);
+                await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
+                await fs.promises.writeFile(localPath, buffer);
+            }
+            catch (err) {
+                console.error(`[VidPilot] Failed to download visual asset from Supabase: ${err.message}`);
+                res.status(404).json({ error: "No visual asset is available with this id for this job." });
+                return;
+            }
+        }
+        if (!fs.existsSync(localPath)) {
+            res.status(404).json({ error: "No visual asset is available with this id for this job." });
+            return;
+        }
+        res.sendFile(localPath, (err) => {
+            if (err)
+                next(err);
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function renderVideoHandler(req, res, next) {
+    try {
+        const job = await jobService.renderVideoForJob(req.params.id);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function qualityCheckHandler(req, res, next) {
+    try {
+        const job = await jobService.runQualityCheckForJob(req.params.id);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function qualityReportHandler(req, res, next) {
+    try {
+        const job = await jobService.getJobOrThrow(req.params.id);
+        if (!job.qualityReport) {
+            res.status(404).json({ error: "No quality report is available for this job yet." });
+            return;
+        }
+        res.json(job.qualityReport);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function uploadYoutubeHandler(req, res, next) {
+    try {
+        const job = await jobService.uploadVideoForJob(req.params.id);
+        res.json(job);
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function getJobVideoHandler(req, res, next) {
+    try {
+        // Same pattern as getSceneAudioHandler — the path served is always the
+        // one the server itself recorded on the job, never anything supplied
+        // by the client.
+        const job = await jobService.getJobOrThrow(req.params.id);
+        // Keyed on videoRender status alone, not job.status: once Phase 9's QC
+        // engine moves a job past "video_ready" (to "quality_check"/"ready"/
+        // "failed" on a QC-only failure) the rendered file is still the same
+        // valid video and must stay playable.
+        if (job.videoRender?.status !== "ready" || !job.videoRender.path) {
+            res.status(404).json({ error: "No video is available for this job." });
+            return;
+        }
+        // Direct redirect to Supabase storage URL if hosted externally
+        if (job.videoRender.path.startsWith("http://") || job.videoRender.path.startsWith("https://")) {
+            res.redirect(job.videoRender.path);
+            return;
+        }
+        res.sendFile(job.videoRender.path, (err) => {
+            if (err)
+                next(err);
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+}

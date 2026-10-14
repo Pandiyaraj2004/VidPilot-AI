@@ -1,0 +1,20 @@
+// Read-only verification of the explicitly approved test upload.
+import dotenv from 'dotenv';
+import { writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { OAuth2Client } from 'google-auth-library';
+import { youtube } from '@googleapis/youtube';
+dotenv.config({ quiet: true });
+const { config } = await import('../dist/config/env.js');
+const { readToken } = await import('../dist/services/youtube/tokenStore.js');
+const saved = await readToken();
+assert.ok(saved?.refreshToken, 'YouTube connection required');
+const auth = new OAuth2Client(config.youtube.googleClientId, config.youtube.googleClientSecret, config.youtube.redirectUri);
+auth.setCredentials({ refresh_token: saved.refreshToken, access_token: saved.accessToken, expiry_date: saved.expiryDate });
+const result = await youtube({ version: 'v3', auth }).videos.list({ part: ['status', 'snippet', 'contentDetails'], id: ['Q5XIAU9BQcs'] });
+const video = result.data.items?.[0];
+assert.equal(video?.id, 'Q5XIAU9BQcs');
+assert.equal(video.status?.privacyStatus, 'unlisted');
+const report = { at: new Date().toISOString(), id: video.id, title: video.snippet?.title, privacy: video.status.privacyStatus, uploadStatus: video.status.uploadStatus, duration: video.contentDetails?.duration, url: `https://www.youtube.com/watch?v=${video.id}`, verifiedWithYouTubeApi: true };
+await writeFile('../maintenance/youtube-unlisted-result.json', JSON.stringify(report, null, 2));
+console.log(JSON.stringify(report));

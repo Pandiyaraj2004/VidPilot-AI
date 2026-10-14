@@ -1,5 +1,6 @@
 node_modules/
 dist/
+!backend/dist/
 build/
 .env
 .env.local
@@ -25,3 +26,17 @@ client_secret_*.json
 # Piper binary + voice models (large, platform-specific, downloaded by setup) and generated audio
 backend/vendor/
 backend/storage/
+
+# Audit snapshots and test artifacts remain local.
+maintenance/
+maintenance/baseline-*.patch
+maintenance/npm-cache/
+maintenance/*-tests.json
+maintenance/*.log
+maintenance/reset-*.json
+backend/reset-manifest-*.json
+backend/.deployment/
+maintenance/e2e/
+maintenance/cloud-audit.json
+maintenance/linux-runtime/
+maintenance/*-manifest*.json

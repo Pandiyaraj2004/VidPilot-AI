@@ -60,7 +60,10 @@ export async function ensureLocalVideoFile(jobId: string, pathOrUrl: string): Pr
   // If Supabase is configured, try downloading from the bucket first
   if (isSupabaseConfigured()) {
     try {
-      const bucketPath = `${jobId}/final.mp4`;
+      const remote=new URL(pathOrUrl),expected=new URL(config.supabase.url!);
+      const marker="/rendered-videos/",index=remote.pathname.indexOf(marker);
+      const objectName=index>=0?decodeURIComponent(remote.pathname.slice(index+marker.length)):"";
+      const bucketPath=remote.hostname===expected.hostname&&(objectName.startsWith(`vp1/${jobId}/`)||objectName===`${jobId}/final.mp4`)?objectName:`${jobId}/final.mp4`;
       const buffer = await downloadFromSupabaseBucket("rendered-videos", bucketPath);
       await fs.promises.writeFile(localPath, buffer);
       return localPath;

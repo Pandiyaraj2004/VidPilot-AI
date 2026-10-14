@@ -57,8 +57,6 @@ function makeJob(videoPath: string, overrides: Partial<VideoJob> = {}): VideoJob
     voiceSpeed: 1,
     visualStyle: "automatic",
     subtitlesEnabled: true,
-    thumbnailEnabled: false,
-    approvalRequired: false,
     youtubeVisibility: "private",
     status: "video_ready",
     content: {
@@ -91,17 +89,13 @@ function makeJob(videoPath: string, overrides: Partial<VideoJob> = {}): VideoJob
     },
     qualityReport: null,
     renderVersion: 0,
-    approval: null,
-    thumbnail: null,
     youtube: null,
     lastError: null,
     retryCount: 0,
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
-    approvedAt: null,
     publishedAt: null,
     youtubeVideoId: null,
-    telegramMessageId: null,
     ...overrides,
   };
 }

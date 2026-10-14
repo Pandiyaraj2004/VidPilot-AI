@@ -1,3 +1,4 @@
+import { RESPONSE_SCHEMA } from "./geminiProvider.js";
 import { config, isConfigured } from "../../config/env.js";
 import {
   classifyHttpStatus,
@@ -10,6 +11,7 @@ import {
 } from "./aiProvider.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+export const isFreeOpenRouterModel=(model:string)=>model==="openrouter/free"||model.endsWith(":free");
 
 export class OpenRouterProvider implements AIProvider {
   readonly name = "openrouter" as const;
@@ -20,6 +22,7 @@ export class OpenRouterProvider implements AIProvider {
     }
 
     const model = config.ai.openRouterModel;
+    if(!isFreeOpenRouterModel(model))throw new ProviderError("openrouter","auth","Paid OpenRouter models are disabled. Use openrouter/free or a :free model to preserve the zero-cost requirement.");
 
     const body = {
       model,
@@ -27,8 +30,8 @@ export class OpenRouterProvider implements AIProvider {
         { role: "system", content: request.systemPrompt },
         { role: "user", content: request.userPrompt },
       ],
-      response_format: { type: "json_object" },
-      temperature: 0.9,
+      response_format: { type: "json_schema", json_schema: {name:"video_content",strict:true,schema:jsonSchema(RESPONSE_SCHEMA)} },
+      temperature: 0.6,
     };
 
     let response: Response;
@@ -75,4 +78,13 @@ export class OpenRouterProvider implements AIProvider {
 
     return { rawText: text, model: data.model ?? model };
   }
+}
+
+function jsonSchema(value:unknown):unknown {
+ if(Array.isArray(value))return value.map(jsonSchema);
+ if(!value||typeof value!=="object")return value;
+ const obj=value as Record<string,unknown>;const result:Record<string,unknown>={};
+ for(const [key,v] of Object.entries(obj))result[key]=key==="type"?String(v).toLowerCase():jsonSchema(v);
+ if(result.type==="object"){result.additionalProperties=false;result.required=Object.keys(obj.properties as object);}
+ return result;
 }

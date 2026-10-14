@@ -48,13 +48,9 @@ export type JobStatus =
   | "rendering"
   | "video_validation"
   | "video_ready"
-  | "generating_thumbnail"
   | "quality_check"
-  | "ready"
-  | "awaiting_approval"
-  | "rejected"
+  | "qc_passed"
   | "regenerating"
-  | "approved"
   | "uploading"
   | "processing"
   | "published"
@@ -302,6 +298,7 @@ export interface VideoContent {
 }
 
 export interface VideoJob {
+  retentionManaged?: boolean;
   id: string;
   topic: string;
   inputScript: string | null;
@@ -313,8 +310,6 @@ export interface VideoJob {
   voiceSpeed: number;
   visualStyle: VisualStyle;
   subtitlesEnabled: boolean;
-  thumbnailEnabled: boolean;
-  approvalRequired: boolean;
   youtubeVisibility: YouTubeVisibility;
   status: JobStatus;
   content: VideoContent | null;
@@ -325,22 +320,19 @@ export interface VideoJob {
   renderTemplate: VisualTemplate | null;
   videoRender: VideoRenderMetadata | null;
   qualityReport: QualityReport | null;
-  /** Incremented once per successful render (see renderVideoForJob) — lets an approval record reference exactly which render it covered. */
   renderVersion: number;
-  approval: JobApproval | null;
-  thumbnail: ThumbnailAsset | null;
   youtube: YouTubePublication | null;
   lastError: string | null;
   retryCount: number;
   createdAt: string;
   updatedAt: string;
-  approvedAt: string | null;
-  /** Denormalized mirror of youtube.uploadedAt, kept in sync — same convention as approvedAt alongside approval.decidedAt. */
   publishedAt: string | null;
   /** Denormalized mirror of youtube.videoId, kept in sync — see above. */
-  telegramMessageId: string | null;
   youtubeVideoId: string | null;
   source?: JobSource;
+  attempts?: number;
+  nextAttemptAt?: string | null;
+  hiddenAt?: string | null;
 }
 
 export interface CreateJobInput {
@@ -354,10 +346,11 @@ export interface CreateJobInput {
   voiceSpeed: number;
   visualStyle: VisualStyle;
   subtitlesEnabled: boolean;
-  thumbnailEnabled: boolean;
-  approvalRequired: boolean;
   youtubeVisibility: YouTubeVisibility;
   source?: JobSource;
+  attempts?: number;
+  nextAttemptAt?: string | null;
+  hiddenAt?: string | null;
 }
 
 export interface SchedulerConfig {
@@ -365,7 +358,6 @@ export interface SchedulerConfig {
   intervalHours: number;
   defaultStyle: VideoStyle;
   defaultDurationSeconds: number;
-  requireApproval: boolean;
   youtubeVisibility: YouTubeVisibility;
   lastGenerationAt: string | null;
   nextGenerationAt: string | null;
@@ -429,83 +421,10 @@ export interface QualityReport {
   failures: QualityIssue[];
 }
 
-// --- Phase 10: Telegram Human Approval ---
-
-export type ApprovalStatus = "not_sent" | "sent" | "approved" | "rejected";
-export type ApprovalDecision = "approved" | "rejected";
-
-/**
- * Job-level approval record — same pattern as VideoRenderMetadata/QualityReport:
- * a durable record of the current approval round, distinct from job.status
- * which moves the job through the pipeline. `version` is the real security
- * boundary (a callback must match the CURRENT version to do anything);
- * `renderVersion` is for audit/display only ("this decision was about
- * render #2"). A fresh render always resets this back to `not_sent`
- * (see services/jobs/jobService.ts's renderVideoForJob) so a stale message
- * from a previous render can never matter even before the version check
- * runs.
- */
-export interface JobApproval {
-  status: ApprovalStatus;
-  version: number;
-  renderVersion: number;
-  sentAt: string | null;
-  decision: ApprovalDecision | null;
-  reason: string | null;
-  decidedAt: string | null;
-  /** Message id of the "please reply with a reason" force-reply prompt — correlates a free-text Telegram reply back to this job. Cleared once a reason is captured. */
-  pendingReasonPromptMessageId: number | null;
-}
-
-// --- Phase 11: YouTube Upload + Thumbnail ---
-
-export type YouTubeUploadStatus = "not_uploaded" | "uploading" | "uploaded" | "failed";
-export type YouTubeThumbnailUploadStatus = "not_uploaded" | "uploaded" | "failed";
-
-/**
- * Job-level YouTube publication record — same pattern as VideoRenderMetadata/
- * QualityReport/JobApproval: the durable record of the real upload attempt,
- * distinct from job.status which moves the job through the pipeline.
- * `videoId`/`url` are only ever set after a real, successful
- * `videos.insert` call — never fabricated ahead of time.
- */
+export type YouTubeUploadStatus = "not_uploaded" | "uploading" | "uploaded" | "failed" | "uncertain";
 export interface YouTubePublication {
-  videoId: string | null;
-  url: string | null;
-  status: YouTubeUploadStatus;
-  uploadedAt: string | null;
-  privacyStatus: YouTubeVisibility;
-  thumbnailStatus: YouTubeThumbnailUploadStatus;
-  containsSyntheticMedia: boolean;
-  lastError: string | null;
+ videoId: string | null; url: string | null; status: YouTubeUploadStatus;
+ uploadedAt: string | null; privacyStatus: YouTubeVisibility;
+ containsSyntheticMedia: boolean; lastError: string | null;
 }
-
-export type ThumbnailStatus = "not_generated" | "generating" | "ready" | "failed";
-
-/**
- * Job-level thumbnail record. `sourceAssetId` references an entry already
- * present in one of the job's own `scene.visual.assets` (real, license-
- * verified) when the background came from a real internet asset — null
- * when it fell back to a procedural gradient, same fallback convention as
- * the visual engine itself.
- */
-export interface ThumbnailAsset {
-  status: ThumbnailStatus;
-  path: string | null;
-  width: number | null;
-  height: number | null;
-  fileSizeBytes: number | null;
-  headline: string | null;
-  sourceAssetId: string | null;
-  generatedAt: string | null;
-  error: string | null;
-}
-
-export interface SystemStatus {
-  vidpilot: "operational" | "degraded" | "down";
-  database: "connected" | "disconnected";
-  automation: "ready" | "not_configured" | "running";
-  telegram: "connected" | "not_connected";
-  youtube: "connected" | "not_connected";
-  schedulerState?: any;
-}
+export interface SystemStatus { vidpilot: string; database: string; automation: string; youtube: string; schedulerState?: unknown; }

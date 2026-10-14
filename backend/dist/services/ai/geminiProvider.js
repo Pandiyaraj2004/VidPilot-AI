@@ -1,0 +1,84 @@
+import { config, isConfigured } from "../../config/env.js";
+import { classifyHttpStatus, fetchWithTimeout, ProviderError, safeReadErrorMessage, } from "./aiProvider.js";
+// Gemini's structured-output schema uses an OpenAPI-3.0-like subset, not full JSON Schema
+// (uppercase type names, no $ref/oneOf/etc). This constrains the model to our exact shape,
+// which is far more reliable than asking nicely in the prompt — see aiProvider.ts docs.
+export const RESPONSE_SCHEMA = {
+    type: "OBJECT",
+    properties: {
+        title: { type: "STRING" },
+        hook: { type: "STRING" },
+        introduction: { type: "STRING" },
+        scenes: {
+            type: "ARRAY",
+            minItems: 1,
+            items: {
+                type: "OBJECT",
+                properties: {
+                    id: { type: "STRING" },
+                    order: { type: "INTEGER", minimum: 0 },
+                    narration: { type: "STRING" },
+                    visualDescription: { type: "STRING" },
+                    onScreenText: { type: "STRING" },
+                    estimatedDuration: { type: "NUMBER" },
+                    transition: { type: "STRING" },
+                    emotion: { type: "STRING" },
+                    energy: { type: "NUMBER", minimum: 0, maximum: 1 },
+                    sceneRole: { type: "STRING" },
+                    highlightWords: { type: "ARRAY", items: { type: "STRING" }, maxItems: 10 },
+                    musicMood: { type: "STRING" },
+                    visualKeywords: { type: "ARRAY", items: { type: "STRING" }, maxItems: 6 },
+                },
+                required: ["id", "order", "narration", "visualDescription", "onScreenText", "estimatedDuration"],
+            },
+        },
+        conclusion: { type: "STRING" },
+        description: { type: "STRING" },
+        tags: { type: "ARRAY", items: { type: "STRING" }, minItems: 1 },
+        estimatedDuration: { type: "NUMBER" },
+    },
+    required: ["title", "hook", "introduction", "scenes", "conclusion", "description", "tags", "estimatedDuration"],
+};
+export class GeminiProvider {
+    name = "gemini";
+    async generate(request) {
+        if (!isConfigured(config.ai.geminiApiKey)) {
+            throw new ProviderError("gemini", "auth", "Gemini is not configured (missing GEMINI_API_KEY).");
+        }
+        const model = config.ai.geminiModel;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.ai.geminiApiKey}`;
+        const body = {
+            contents: [{ role: "user", parts: [{ text: request.userPrompt }] }],
+            systemInstruction: { parts: [{ text: request.systemPrompt }] },
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: RESPONSE_SCHEMA,
+                temperature: 0.6,
+                maxOutputTokens: 8192,
+            },
+        };
+        let response;
+        try {
+            response = await fetchWithTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, config.ai.requestTimeoutMs, "gemini");
+        }
+        catch (err) {
+            if (err instanceof ProviderError)
+                throw err;
+            throw new ProviderError("gemini", "unavailable", `Gemini request failed: ${err.message}`);
+        }
+        if (!response.ok) {
+            const kind = classifyHttpStatus(response.status);
+            const detail = await safeReadErrorMessage(response);
+            throw new ProviderError("gemini", kind, `Gemini returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+        }
+        const data = (await response.json());
+        if (data.promptFeedback?.blockReason) {
+            throw new ProviderError("gemini", "invalid_response", `Gemini blocked the prompt: ${data.promptFeedback.blockReason}`);
+        }
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) {
+            throw new ProviderError("gemini", "invalid_response", "Gemini returned an empty response.");
+        }
+        return { rawText: text, model };
+    }
+}

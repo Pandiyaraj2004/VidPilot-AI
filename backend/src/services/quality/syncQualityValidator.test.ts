@@ -31,8 +31,6 @@ function makeJob(scenes: VideoScene[], finalDuration: number | null): VideoJob {
     voiceSpeed: 1,
     visualStyle: "automatic",
     subtitlesEnabled: true,
-    thumbnailEnabled: false,
-    approvalRequired: false,
     youtubeVisibility: "private",
     status: "video_ready",
     content: { title: "t", hook: "h", introduction: "i", scenes, conclusion: "c", description: "d", tags: [], estimatedDuration: sum },
@@ -44,17 +42,13 @@ function makeJob(scenes: VideoScene[], finalDuration: number | null): VideoJob {
     videoRender: finalDuration == null ? null : { status: "ready", generatedAt: new Date(0).toISOString(), durationSeconds: finalDuration, width: 1080, height: 1920, fps: 30, videoCodec: "h264", audioCodec: "aac", fileSizeBytes: 1000, path: "/x.mp4", error: null },
     qualityReport: null,
     renderVersion: 0,
-    approval: null,
-    thumbnail: null,
     youtube: null,
     lastError: null,
     retryCount: 0,
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
-    approvedAt: null,
     publishedAt: null,
     youtubeVideoId: null,
-    telegramMessageId: null,
   };
 }
 

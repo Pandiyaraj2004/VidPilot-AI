@@ -1,5 +1,6 @@
 import { createWriteStream } from "node:fs";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, rm, stat, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -19,7 +20,7 @@ export async function rateGate(key: string, minIntervalMs: number): Promise<void
   lastCallAt.set(key, Date.now());
 }
 
-export async function fetchJsonWithTimeout(url: string, timeoutMs: number, headers?: Record<string, string>): Promise<unknown> {
+async function fetchJsonOnce(url: string, timeoutMs: number, headers?: Record<string, string>): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -40,7 +41,8 @@ export async function fetchJsonWithTimeout(url: string, timeoutMs: number, heade
 }
 
 /** Streams a remote file to disk. Never buffers the whole file in memory — video downloads can be several MB. */
-export async function downloadToFile(url: string, destPath: string, timeoutMs: number): Promise<number> {
+async function downloadOnce(url: string, destPath: string, timeoutMs: number): Promise<number> {
+  const partialPath=destPath+`.${randomUUID()}.part`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -49,11 +51,13 @@ export async function downloadToFile(url: string, destPath: string, timeoutMs: n
       throw new VisualHttpError(`Download from ${new URL(url).hostname} failed with HTTP ${response.status}.`);
     }
     await mkdir(path.dirname(destPath), { recursive: true });
-    await pipeline(Readable.fromWeb(response.body as never), createWriteStream(destPath));
-    const { size } = await stat(destPath);
+    await pipeline(Readable.fromWeb(response.body as never), createWriteStream(partialPath));
+    const { size } = await stat(partialPath);
+    if(size===0)throw new VisualHttpError("Provider returned an empty media download");
+    await rename(partialPath,destPath);
     return size;
   } catch (err) {
-    await rm(destPath, { force: true }).catch(() => undefined);
+    await rm(partialPath, { force: true }).catch(() => undefined);
     if (err instanceof VisualHttpError) throw err;
     if (err instanceof Error && err.name === "AbortError") {
       throw new VisualHttpError(`Download from ${new URL(url).hostname} timed out after ${timeoutMs}ms.`);
@@ -63,3 +67,9 @@ export async function downloadToFile(url: string, destPath: string, timeoutMs: n
     clearTimeout(timer);
   }
 }
+
+export async function withMediaRetry<T>(operation:()=>Promise<T>,sleep=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms))):Promise<T>{
+ for(let attempt=0;;attempt++){try{return await operation();}catch(e){if(attempt>=2||/HTTP (400|401|403|404)/.test((e as Error).message))throw e;await sleep(250*2**attempt);}}
+}
+export function fetchJsonWithTimeout(url:string,timeoutMs:number,headers?:Record<string,string>){return withMediaRetry(()=>fetchJsonOnce(url,timeoutMs,headers));}
+export function downloadToFile(url:string,destPath:string,timeoutMs:number){return withMediaRetry(()=>downloadOnce(url,destPath,timeoutMs));}

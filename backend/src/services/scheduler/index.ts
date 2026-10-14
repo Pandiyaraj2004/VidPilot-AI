@@ -2,21 +2,15 @@ import { SchedulerConfigRepository } from "./schedulerConfigRepository.js";
 import { AutomationHistory } from "./automationHistory.js";
 import { SchedulerLock } from "./schedulerLock.js";
 import { selectNextVariation } from "./variationEngine.js";
-import { createJob, processQueuedJob, generateVoiceForJob, renderVideoForJob, runQualityCheckForJob, uploadVideoForJob } from "../jobs/jobService.js";
-import { sendApprovalRequestForJob } from "../telegram/sendApproval.js";
+import { createJob } from "../jobs/jobService.js";
+import { processNextJob } from "../jobs/pipeline.js";
 import { VOICE_OPTIONS } from "../voice/voiceConfig.js";
+import { Lease } from "../runtime/lease.js";
+import { jobRepository } from "../jobs/index.js";
+import { recordWorker } from "../runtime/workerStatus.js";
+import {youtubeProvider} from "../youtube/index.js";
+import { runCleanup, cleanupPublishedJob } from "../maintenance/cleanup.js";
 import type { SchedulerConfig } from "../../types/index.js";
-
-let checkInterval: NodeJS.Timeout | null = null;
-let schedulerInstance: SchedulerService | null = null;
-
-/** One process-wide scheduler — tick loop state must not be split across instances. */
-export function getSchedulerService(): SchedulerService {
-  if (!schedulerInstance) {
-    schedulerInstance = new SchedulerService();
-  }
-  return schedulerInstance;
-}
 export function validateSchedulerConfig(patch: Partial<SchedulerConfig>): void {
   if (patch.intervalHours !== undefined) {
     if (typeof patch.intervalHours !== "number" || patch.intervalHours < 1) {
@@ -92,11 +86,6 @@ export function validateSchedulerConfig(patch: Partial<SchedulerConfig>): void {
     }
   }
 
-  if (patch.requireApproval !== undefined) {
-    if (typeof patch.requireApproval !== "boolean") {
-      throw new Error("requireApproval must be a boolean.");
-    }
-  }
 
   if (patch.youtubeVisibility !== undefined) {
     const validVisibility = ["private", "unlisted", "public"];
@@ -106,440 +95,53 @@ export function validateSchedulerConfig(patch: Partial<SchedulerConfig>): void {
   }
 }
 
+
 export class SchedulerService {
-  public readonly configRepo = new SchedulerConfigRepository();
-  public readonly history = new AutomationHistory();
-  public readonly lock = new SchedulerLock();
-
-  async getConfig(): Promise<SchedulerConfig> {
-    const config = await this.configRepo.get();
-    if (config.automationEnabled && !config.nextGenerationAt) {
-      const now = new Date();
-      config.nextGenerationAt = new Date(now.getTime() + config.intervalHours * 60 * 60 * 1000).toISOString();
-      await this.configRepo.set(config);
-      await this.history.record({
-        eventType: "scheduler_recalculated",
-        message: `Schedule recalculated (missing nextGenerationAt): next run scheduled at ${config.nextGenerationAt}`,
-      });
-    }
-    return config;
-  }
-
-  async updateConfig(newConfig: Partial<SchedulerConfig>): Promise<SchedulerConfig> {
-    validateSchedulerConfig(newConfig);
-    const current = await this.configRepo.get();
-    const merged = { ...current, ...newConfig };
-    
-    // Honor an explicit nextGenerationAt (e.g. user picked a wall-clock time in the UI).
-    const explicitNextRun =
-      typeof newConfig.nextGenerationAt === "string" && newConfig.nextGenerationAt.trim().length > 0
-        ? newConfig.nextGenerationAt
-        : null;
-
-    // Recalculate nextGenerationAt if enabling or interval changed — unless caller set a specific time.
-    if (merged.automationEnabled && explicitNextRun) {
-      merged.nextGenerationAt = explicitNextRun;
-      await this.history.record({
-        eventType: "scheduler_recalculated",
-        message: `Next run scheduled at ${merged.nextGenerationAt}`,
-      });
-    } else if (merged.automationEnabled && (!current.automationEnabled || current.intervalHours !== merged.intervalHours)) {
-      const now = new Date();
-      merged.nextGenerationAt = new Date(now.getTime() + merged.intervalHours * 60 * 60 * 1000).toISOString();
-      await this.history.record({
-        eventType: "scheduler_recalculated",
-        message: `Schedule recalculated: next run scheduled at ${merged.nextGenerationAt}`,
-      });
-    } else if (!merged.automationEnabled) {
-      merged.nextGenerationAt = null;
-    }
-
-    const saved = await this.configRepo.set(merged);
-    
-    if (saved.automationEnabled) {
-      this.startLoop();
-    } else {
-      this.stopLoop();
-    }
-
-    return saved;
-  }
-
-  startLoop(): void {
-    if (checkInterval) return;
-    console.log("[Scheduler] Starting elapsed-time checker tick loop (every 30s)...");
-    
-    // Perform check immediately, then every 30s
-    void this.tick();
-    checkInterval = setInterval(() => {
-      void this.tick();
-    }, 30000);
-    
-    void this.history.record({
-      eventType: "scheduler_started",
-      message: "Scheduler service tick loop initiated.",
-    });
-  }
-
-  stopLoop(): void {
-    if (checkInterval) {
-      clearInterval(checkInterval);
-      checkInterval = null;
-      console.log("[Scheduler] Stopped elapsed-time checker tick loop.");
-    }
-  }
-
-  async triggerIfDue(): Promise<boolean> {
-    const config = await this.configRepo.get();
-    if (!config.automationEnabled || !config.nextGenerationAt) return false;
-
-    const now = new Date();
-    const nextRun = new Date(config.nextGenerationAt);
-
-    if (now >= nextRun) {
-      // Prevent duplicate generation slots across concurrent processes
-      const slotTimeKey = nextRun.toISOString();
-      const acquired = await this.lock.acquire(slotTimeKey);
-      if (!acquired) {
-        console.warn(`[Scheduler] Skipping slot ${slotTimeKey} — already locked/processed.`);
-        return false;
-      }
-
-      console.log(`[Scheduler] Generation slot ${slotTimeKey} reached!`);
-      
-      // Compute next slot in the future to handle server downtime safely (prevent rapid succession catchups)
-      let nextSlotTime = nextRun.getTime();
-      while (nextSlotTime <= now.getTime()) {
-        nextSlotTime += config.intervalHours * 60 * 60 * 1000;
-      }
-      const nextSlot = new Date(nextSlotTime).toISOString();
-      await this.configRepo.set({
-        ...config,
-        lastGenerationAt: now.toISOString(),
-        nextGenerationAt: nextSlot,
-      });
-
-      // Run generation pipeline asynchronously in background (don't block the tick loop)
-      void this.runPipeline();
-      return true;
-    }
-
-    return false;
-  }
-
-  async runPipeline(): Promise<void> {
-    let jobId: string | undefined;
-
-    try {
-      const config = await this.configRepo.get();
-      const records = await this.history.read();
-
-      // 1. Select Variation parameters
-      const selection = selectNextVariation(
-        config.contentCategories,
-        config.languages,
-        config.enabledVoices,
-        records,
-        config.minDurationSeconds,
-        config.maxDurationSeconds,
-        config.defaultStyle
-      );
-
-      console.log(`[Scheduler] Variation selected: Topic="${selection.topic}", Language=${selection.language}, Voice=${selection.voiceId}, Duration=${selection.durationSeconds}s`);
-
-      // 2. Create Video Job
-      const job = await createJob({
-        topic: selection.topic,
-        style: selection.style,
-        contentCategory: selection.category,
-        durationSeconds: selection.durationSeconds,
-        language: selection.language,
-        voiceId: selection.voiceId,
-        voiceSpeed: 1.0,
-        visualStyle: "cinematic",
-        subtitlesEnabled: true,
-        thumbnailEnabled: false,
-        approvalRequired: config.requireApproval,
-        youtubeVisibility: config.youtubeVisibility,
-        source: "scheduled",
-      });
-
-      jobId = job.id;
-      await this.configRepo.set({ ...config, lastJobId: jobId });
-
-      await this.history.record({
-        eventType: "job_created",
-        jobId,
-        topic: selection.topic,
-        category: selection.category,
-        language: selection.language,
-        voice: selection.voiceId,
-        storyStructure: selection.storyStructure,
-        hookType: selection.hookType,
-        targetDuration: selection.durationSeconds,
-        message: `Successfully created scheduled production job ${jobId}.`,
-      });
-
-      // 3. Generate AI Script
-      console.log(`[Scheduler] Generating script for job ${jobId}...`);
-      const scriptJob = await processQueuedJob(jobId);
-      
-      // Inject AI chosen structural choices for anti-repetition memory
-      const contentPatch = {
-        title: scriptJob.content?.title || "",
-        hook: scriptJob.content?.hook || "",
-        introduction: scriptJob.content?.introduction || "",
-        scenes: scriptJob.content?.scenes || [],
-        conclusion: scriptJob.content?.conclusion || "",
-        description: scriptJob.content?.description || "",
-        tags: scriptJob.content?.tags || [],
-        estimatedDuration: scriptJob.content?.estimatedDuration || 0,
-        storyStructure: selection.storyStructure,
-        hookType: selection.hookType,
-        ctaPattern: selection.ctaPattern,
-      };
-      
-      const { jobRepository } = await import("../jobs/index.js");
-      await jobRepository.updateJob(jobId, { content: contentPatch });
-
-      // 4. Generate Voice
-      console.log(`[Scheduler] Generating voice narration for job ${jobId}...`);
-      await generateVoiceForJob(jobId);
-
-      // 5. Render Video (Remotion + FFmpeg Concat)
-      console.log(`[Scheduler] Sourcing visuals & rendering composition for job ${jobId}...`);
-      await renderVideoForJob(jobId);
-      // 6. Quality Control Check
-      console.log(`[Scheduler] Running Quality Control validators for job ${jobId}...`);
-      const qcJob = await runQualityCheckForJob(jobId);
-
-      if (qcJob.status === "ready") {
-        if (config.requireApproval) {
-          const { jobRepository } = await import("../jobs/index.js");
-          const fresh = await jobRepository.getJob(jobId);
-          if (fresh?.telegramMessageId || fresh?.status === "awaiting_approval") {
-            console.log(`[Scheduler] Telegram approval already sent for job ${jobId} — skipping duplicate send.`);
-          } else {
-            console.log(`[Scheduler] Sending video approval request to Telegram for job ${jobId}...`);
-            await sendApprovalRequestForJob(jobId);
-          }
-
-          await this.history.record({
-            eventType: "awaiting_approval",
-            jobId,
-            topic: selection.topic,
-            category: selection.category,
-            language: selection.language,
-            voice: selection.voiceId,
-            storyStructure: selection.storyStructure,
-            hookType: selection.hookType,
-            targetDuration: selection.durationSeconds,
-            actualDuration: qcJob.videoRender?.durationSeconds || undefined,
-            message: `Render complete. Sent Telegram approval query for job ${jobId}.`,
-          });
-
-          console.log(`[Scheduler] Production pipeline successfully finished. Job ${jobId} awaiting Telegram approval.`);
-        } else {
-          // Auto-approve and upload directly
-          console.log(`[Scheduler] Auto-approving job ${jobId} (requireApproval is false)...`);
-          const decidedAt = new Date().toISOString();
-          const { jobRepository } = await import("../jobs/index.js");
-          await jobRepository.updateJob(jobId, {
-            status: "approved",
-            approvedAt: decidedAt,
-            approval: {
-              status: "approved",
-              version: 1,
-              renderVersion: qcJob.renderVersion,
-              sentAt: decidedAt,
-              decision: "approved",
-              reason: "Auto-approved by scheduler (requireApproval = false)",
-              decidedAt,
-              pendingReasonPromptMessageId: null,
-            },
-          });
-
-          await this.history.record({
-            eventType: "auto_approved",
-            jobId,
-            topic: selection.topic,
-            category: selection.category,
-            language: selection.language,
-            voice: selection.voiceId,
-            storyStructure: selection.storyStructure,
-            hookType: selection.hookType,
-            targetDuration: selection.durationSeconds,
-            actualDuration: qcJob.videoRender?.durationSeconds || undefined,
-            message: `Render complete. Auto-approved job ${jobId}.`,
-          });
-
-          console.log(`[Scheduler] Triggering YouTube upload for auto-approved job ${jobId}...`);
-          try {
-            await uploadVideoForJob(jobId);
-            await this.history.record({
-              eventType: "published",
-              jobId,
-              message: `Successfully uploaded and published job ${jobId} to YouTube.`,
-            });
-            console.log(`[Scheduler] Auto-upload complete for job ${jobId}.`);
-          } catch (uploadErr) {
-            console.error(`[Scheduler] YouTube auto-upload failed for job ${jobId}:`, uploadErr);
-          }
-        }
-      } else {
-        console.warn(`[Scheduler] Job ${jobId} failed Quality Control check. Status is ${qcJob.status}`);
-      }
-    } catch (err) {
-      console.error(`[Scheduler] Error running automated pipeline for job ${jobId}:`, err);
-      await this.history.record({
-        eventType: "failed",
-        jobId,
-        message: `Automated pipeline failed: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
-
-  async processVideoReadyJobs(): Promise<void> {
-    try {
-      const { jobRepository } = await import("../jobs/index.js");
-      const videoReadyJobs = await jobRepository.listJobs({ status: "video_ready" });
-      
-      if (videoReadyJobs.length === 0) return;
-
-      console.log(`[Scheduler] Found ${videoReadyJobs.length} job(s) at video_ready status. Running quality checks...`);
-
-      for (const job of videoReadyJobs) {
-        // Run quality check asynchronously in background
-        void (async () => {
-          try {
-            console.log(`[Scheduler] Running quality check for video_ready job ${job.id}...`);
-            const qcJob = await runQualityCheckForJob(job.id);
-            
-            if (qcJob.status === "ready") {
-              const config = await this.configRepo.get();
-              if (qcJob.approvalRequired && config.requireApproval) {
-                if (qcJob.telegramMessageId) {
-                  console.log(`[Scheduler] Job ${job.id} already has Telegram approval sent — skipping.`);
-                } else {
-                  try {
-                    await sendApprovalRequestForJob(job.id);
-                    await this.history.record({
-                      eventType: "awaiting_approval",
-                      jobId: job.id,
-                      message: `Quality check passed. Sent Telegram approval request for job ${job.id}.`,
-                    });
-                    console.log(`[Scheduler] Telegram approval sent for job ${job.id}.`);
-                  } catch (approvalErr) {
-                    console.error(`[Scheduler] Failed to send Telegram approval for job ${job.id}:`, approvalErr);
-                  }
-                }
-              }
-            } else {
-              console.warn(`[Scheduler] Quality check failed for job ${job.id}. Status is ${qcJob.status}`);
-            }
-          } catch (err) {
-            console.error(`[Scheduler] Quality check failed for video_ready job ${job.id}:`, err);
-          }
-        })();
-      }
-    } catch (err) {
-      console.error("[Scheduler] Error in processVideoReadyJobs:", err);
-    }
-  }
-
-  async processReadyJobs(): Promise<void> {
-    try {
-      const { jobRepository } = await import("../jobs/index.js");
-      const readyJobs = await jobRepository.listJobs({ status: "ready" });
-      
-      if (readyJobs.length === 0) return;
-
-      // Only first-time sends — resend is manual from Job Details.
-      const needsApprovalSent = readyJobs.filter(
-        (job) =>
-          job.approvalRequired &&
-          job.status === "ready" &&
-          !job.telegramMessageId &&
-          (!job.approval || job.approval.status === "not_sent")
-      );
-      
-      if (needsApprovalSent.length === 0) return;
-
-      console.log(`[Scheduler] Found ${needsApprovalSent.length} ready job(s) that need Telegram approval sent.`);
-
-      for (const job of needsApprovalSent) {
-        // Send approval asynchronously in background
-        void (async () => {
-          try {
-            console.log(`[Scheduler] Sending Telegram approval for ready job ${job.id}...`);
-            await sendApprovalRequestForJob(job.id);
-            await this.history.record({
-              eventType: "awaiting_approval",
-              jobId: job.id,
-              message: `Sent Telegram approval request for ready job ${job.id}.`,
-            });
-            console.log(`[Scheduler] Telegram approval sent for job ${job.id}.`);
-          } catch (err) {
-            console.error(`[Scheduler] Failed to send Telegram approval for ready job ${job.id}:`, err);
-          }
-        })();
-      }
-    } catch (err) {
-      console.error("[Scheduler] Error in processReadyJobs:", err);
-    }
-  }
-
-  async processApprovedUploads(): Promise<void> {
-    try {
-      const { jobRepository } = await import("../jobs/index.js");
-      const approvedJobs = await jobRepository.listJobs({ status: "approved" });
-      
-      if (approvedJobs.length === 0) return;
-
-      console.log(`[Scheduler] Found ${approvedJobs.length} approved job(s) eligible for YouTube upload.`);
-
-      for (const job of approvedJobs) {
-        // Run upload asynchronously in background
-        void (async () => {
-          try {
-            console.log(`[Scheduler] Automatically uploading approved job ${job.id} to YouTube...`);
-            await uploadVideoForJob(job.id);
-            await this.history.record({
-              eventType: "published",
-              jobId: job.id,
-              message: `Successfully uploaded and published job ${job.id} to YouTube.`,
-            });
-            console.log(`[Scheduler] Successfully uploaded approved job ${job.id} to YouTube.`);
-          } catch (err) {
-            console.error(`[Scheduler] Auto-upload failed for job ${job.id}:`, err);
-          }
-        })();
-      }
-    } catch (err) {
-      console.error("[Scheduler] Error in processApprovedUploads:", err);
-    }
-  }
-
-  private async tick(): Promise<void> {
-    try {
-      await this.triggerIfDue();
-    } catch (err) {
-      console.error("[Scheduler] Error in scheduler tick (triggerIfDue):", err);
-    }
-    try {
-      await this.processVideoReadyJobs();
-    } catch (err) {
-      console.error("[Scheduler] Error in scheduler tick (processVideoReadyJobs):", err);
-    }
-    try {
-      await this.processReadyJobs();
-    } catch (err) {
-      console.error("[Scheduler] Error in scheduler tick (processReadyJobs):", err);
-    }
-    try {
-      await this.processApprovedUploads();
-    } catch (err) {
-      console.error("[Scheduler] Error in scheduler tick (processApprovedUploads):", err);
-    }
-  }
+ readonly configRepo=new SchedulerConfigRepository(); readonly history=new AutomationHistory(); readonly lock=new SchedulerLock();
+ private timer:ReturnType<typeof setInterval>|null=null; private busy=false;
+ async getConfig() {return this.configRepo.get();}
+ async updateConfig(patch:Partial<SchedulerConfig>) {
+  const current=await this.getConfig(); const merged={...current,...patch}; validateSchedulerConfig(merged);
+  if(merged.minDurationSeconds>merged.maxDurationSeconds) throw new Error("Minimum duration exceeds maximum");
+  if(!Number.isFinite(merged.intervalHours)||merged.intervalHours<1||merged.intervalHours>168) throw new Error("Interval must be 1–168 hours");
+  if(patch.automationEnabled && !current.automationEnabled || patch.intervalHours!==undefined)
+   merged.nextGenerationAt=new Date(Date.now()+merged.intervalHours*3600000).toISOString();
+  if(!merged.automationEnabled) merged.nextGenerationAt=null;
+  return this.configRepo.set(merged);
+ }
+ startLoop() {if(this.timer)return; this.timer=setInterval(()=>void this.tick().catch(e=>console.error("Worker:",e)),30000);this.timer.unref();void this.tick().catch(e=>console.error("Worker:",e));}
+ stopLoop() {if(this.timer)clearInterval(this.timer);this.timer=null;}
+ async runPipeline() {
+  const c=await this.getConfig();
+  const v=selectNextVariation(c.contentCategories,c.languages,c.enabledVoices,await this.history.read(),c.minDurationSeconds,c.maxDurationSeconds,c.defaultStyle);
+  const job=await createJob({topic:v.topic,style:v.style,contentCategory:v.category,durationSeconds:v.durationSeconds,language:v.language,voiceId:v.voiceId,voiceSpeed:1,visualStyle:"cinematic",subtitlesEnabled:true,youtubeVisibility:c.youtubeVisibility,source:"scheduled"});
+  await this.history.record({eventType:"job_created",jobId:job.id,topic:v.topic,category:v.category,language:v.language,voice:v.voiceId,style:v.style,targetDuration:v.durationSeconds});
+  return job;
+ }
+ async triggerIfDue() {
+  const c=await this.getConfig();if(!c.automationEnabled)return;
+  if(!c.nextGenerationAt){await this.configRepo.set({...c,nextGenerationAt:new Date(Date.now()+c.intervalHours*3600000).toISOString()});return;}
+  if(Date.parse(c.nextGenerationAt)>Date.now())return;
+  if(!await this.lock.acquire(`slot:${c.nextGenerationAt}`))return;
+  // Persist next slot before generation so a restart cannot enqueue it twice.
+  await this.configRepo.set({...c,lastGenerationAt:new Date().toISOString(),nextGenerationAt:new Date(Date.now()+c.intervalHours*3600000).toISOString()});
+  await this.runPipeline();
+ }
+ async tick() {
+  if(this.busy)return;this.busy=true;const lease=new Lease("worker");let held=false;let heartbeat:ReturnType<typeof setInterval>|undefined;
+  try {
+   held=await lease.acquire();if(!held)return;
+   await recordWorker("processing");
+   heartbeat=setInterval(()=>{void lease.assertHeld().then(()=>recordWorker("processing")).catch(e=>{console.error("Worker lease renewal failed; stopping:",e);process.exit(1);});},30000);
+   await runCleanup();
+   for(const j of await jobRepository.listJobs({status:"published",limit:1000}))try{await cleanupPublishedJob(j.id);}catch(e){console.error("Cleanup retry:",e);}
+   await this.triggerIfDue();
+   if(!await youtubeProvider.isConnected()){await recordWorker("error","Reconnect YouTube once in Settings to resume automatic publishing.");return;}
+   await processNextJob();
+   await recordWorker("idle");
+  }catch(e){if(held)await recordWorker("error",(e as Error).message).catch(()=>undefined);throw e;
+  }finally{if(heartbeat)clearInterval(heartbeat);if(held)await lease.release();this.busy=false;}
+ }
 }
+let singleton:SchedulerService|undefined;
+export function getSchedulerService(){return singleton??=new SchedulerService();}

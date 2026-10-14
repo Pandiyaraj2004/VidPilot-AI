@@ -10,11 +10,13 @@ const COLLECTION = "jobs";
 const LIST_LIMIT = 200;
 
 export class FirestoreJobRepository implements JobRepository {
+  async deleteJob(id:string):Promise<void>{await getDb().collection(COLLECTION).doc(id).delete();}
   async createJob(input: CreateJobInput): Promise<VideoJob> {
     const db = getDb();
     const ref = db.collection(COLLECTION).doc();
     const now = new Date().toISOString();
     const job: VideoJob = {
+      retentionManaged: true,
       id: ref.id,
       topic: input.topic.trim(),
       inputScript: input.inputScript?.trim() || null,
@@ -26,8 +28,6 @@ export class FirestoreJobRepository implements JobRepository {
       voiceSpeed: input.voiceSpeed,
       visualStyle: input.visualStyle,
       subtitlesEnabled: input.subtitlesEnabled,
-      thumbnailEnabled: input.thumbnailEnabled,
-      approvalRequired: input.approvalRequired,
       youtubeVisibility: input.youtubeVisibility,
       status: "queued",
       content: null,
@@ -39,17 +39,13 @@ export class FirestoreJobRepository implements JobRepository {
       videoRender: null,
       qualityReport: null,
       renderVersion: 0,
-      approval: null,
-      thumbnail: null,
       youtube: null,
       lastError: null,
       retryCount: 0,
       createdAt: now,
       updatedAt: now,
-      approvedAt: null,
       publishedAt: null,
       youtubeVideoId: null,
-      telegramMessageId: null,
       source: input.source || "manual",
     };
     await ref.set(job);

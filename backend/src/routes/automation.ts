@@ -31,7 +31,7 @@ async function updateAutomationHandler(req: Request, res: Response, next: NextFu
 async function runNowHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     // Generate scheduled video immediately without altering next scheduled run
-    void scheduler.runPipeline();
+    await scheduler.runPipeline();
     res.json({ success: true, message: "Production pipeline triggered immediately." });
   } catch (err) {
     next(err);

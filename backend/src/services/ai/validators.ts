@@ -43,6 +43,7 @@ export function validateContentQuality(content: VideoContentParsed, requestedDur
   if (content.scenes.length === 0) {
     errors.push("No scenes were generated.");
   } else {
+    if(new Set(content.scenes.map(s=>s.id)).size!==content.scenes.length)errors.push("Scene IDs must be unique.");
     const orders = content.scenes.map((scene) => scene.order);
     const uniqueOrders = new Set(orders);
     if (uniqueOrders.size !== orders.length) {

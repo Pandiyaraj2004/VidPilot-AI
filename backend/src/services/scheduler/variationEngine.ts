@@ -233,13 +233,23 @@ export function selectNextVariation(
   }
 
   // 7. Select Target Duration (Randomly between min and max)
-  const durationRange = maxDuration - minDuration;
-  const chosenDuration = Math.round(minDuration + Math.random() * durationRange);
+  const durations = Array.from({length: maxDuration - minDuration + 1}, (_, i) => minDuration + i);
+  const previousDuration = history.find(h => h.targetDuration !== undefined)?.targetDuration;
+  const durationPool = durations.filter(d => d !== previousDuration);
+  const chosenDuration = durationPool.length ? durationPool[Math.floor(Math.random() * durationPool.length)] : minDuration;
+  // Rotate supported production styles; the selected style starts the rotation.
+  const styles: VideoStyle[] = ["explainer", "documentary", "story", "qa", "list"];
+  const orderedStyles = [defaultStyle, ...styles.filter(s => s !== defaultStyle)].filter(s => styles.includes(s));
+  const recentStyles = history.map(h => h.style).filter(Boolean);
+  const chosenStyle = orderedStyles.reduce((best, s) => {
+    const age = (v: string) => { const i = recentStyles.indexOf(v); return i < 0 ? Infinity : i; };
+    return age(s) > age(best) ? s : best;
+  }, orderedStyles[0]);
 
   return {
     topic: chosenTopic,
     category: chosenCategory,
-    style: defaultStyle,
+    style: chosenStyle,
     language: chosenLanguage,
     voiceId: chosenVoice,
     durationSeconds: chosenDuration,

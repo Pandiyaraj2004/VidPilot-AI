@@ -13,7 +13,7 @@ export async function getYoutubeStatusHandler(_req: Request, res: Response, next
   try {
     const connected = await youtubeProvider.isConnected();
     const channel = connected ? await youtubeProvider.getChannelInfo() : null;
-    res.json({ connected, channel, configured: youtubeProvider.isConfigured() });
+    res.json({ connected, channel, configured: youtubeProvider.isConfigured(),error:await youtubeProvider.getConnectionError?.()??null });
   } catch (err) {
     next(err);
   }
@@ -26,7 +26,7 @@ export function getYoutubeAuthHandler(_req: Request, res: Response, next: NextFu
       return;
     }
     pendingState = randomUUID();
-    res.redirect(youtubeProvider.getAuthUrl(pendingState));
+    res.json({url:youtubeProvider.getAuthUrl(pendingState)});
   } catch (err) {
     next(err);
   }
@@ -38,28 +38,29 @@ export async function getYoutubeCallbackHandler(req: Request, res: Response): Pr
   pendingState = null;
 
   if (typeof error === "string") {
-    res.redirect(`${config.youtube.frontendUrl}/settings?youtube=denied`);
+    res.redirect(`${config.youtube.frontendUrl}/?youtube=denied`);
     return;
   }
   if (typeof state !== "string" || !expectedState || state !== expectedState) {
-    res.redirect(`${config.youtube.frontendUrl}/settings?youtube=error&reason=state_mismatch`);
+    res.redirect(`${config.youtube.frontendUrl}/?youtube=error&reason=state_mismatch`);
     return;
   }
   if (typeof code !== "string") {
-    res.redirect(`${config.youtube.frontendUrl}/settings?youtube=error&reason=missing_code`);
+    res.redirect(`${config.youtube.frontendUrl}/?youtube=error&reason=missing_code`);
     return;
   }
 
   try {
     await youtubeProvider.handleCallback(code);
-    res.redirect(`${config.youtube.frontendUrl}/settings?youtube=connected`);
+    if(process.env.WORKER_ENABLED==="true"){const {getSchedulerService}=await import("../services/scheduler/index.js");getSchedulerService().startLoop();}
+    res.redirect(`${config.youtube.frontendUrl}/?youtube=connected`);
   } catch {
     // The real cause is logged server-side by the global error handler in
     // other flows, but this endpoint's failure mode is a browser redirect,
     // not a JSON error the frontend could read — so the reason is
     // deliberately generic here rather than echoing a raw Google error
     // string into a URL.
-    res.redirect(`${config.youtube.frontendUrl}/settings?youtube=error&reason=connect_failed`);
+    res.redirect(`${config.youtube.frontendUrl}/?youtube=error&reason=connect_failed`);
   }
 }
 

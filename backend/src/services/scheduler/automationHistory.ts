@@ -14,6 +14,7 @@ export interface AutomationHistoryEntry {
   hookType?: string;
   ctaPattern?: string;
   targetDuration?: number;
+  style?: string;
   actualDuration?: number;
   musicTrack?: string;
   message?: string;
@@ -24,7 +25,7 @@ const TABLE = "automation_history";
 export class AutomationHistory {
   private readonly historyPath: string;
 
-  constructor(dataDir: string = path.join(process.cwd(), "storage")) {
+  constructor(dataDir: string = process.env.SCHEDULER_DATA_DIR ?? path.join(process.cwd(), "storage")) {
     this.historyPath = path.join(dataDir, "automationHistory.json");
   }
 

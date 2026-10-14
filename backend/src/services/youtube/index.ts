@@ -2,8 +2,6 @@
  * Single shared YouTubeDataApiProvider instance — everything that talks to
  * YouTube (youtubeUploadService.ts, controllers/routes) imports the same
  * instance from here, matching the singleton pattern already used for
- * jobRepository (services/jobs/index.ts) and telegramProvider
- * (services/telegram/index.ts).
  */
 
 import { YouTubeDataApiProvider } from "./youtubeDataApiProvider.js";

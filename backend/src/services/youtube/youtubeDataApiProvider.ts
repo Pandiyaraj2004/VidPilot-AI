@@ -1,7 +1,6 @@
 /**
  * Real YouTube Data API v3 + Google OAuth2 client (Phase 11) — uses the
  * official `googleapis` package rather than a hand-rolled HTTP client
- * (unlike Jamendo/Pixabay/Pexels/Telegram elsewhere in this project):
  * OAuth2 token refresh and the resumable upload protocol are exactly the
  * kind of thing worth getting from Google's own maintained client instead
  * of reimplementing.
@@ -11,13 +10,15 @@
  */
 
 import { createReadStream } from "node:fs";
-import { google } from "googleapis";
+import { youtube as youtubeApi } from "@googleapis/youtube";
+import { OAuth2Client } from "google-auth-library";
+const google = { youtube: youtubeApi, auth: { OAuth2: OAuth2Client } };
 import { config, isConfigured } from "../../config/env.js";
 import { clearToken, readToken, writeToken, type StoredYouTubeToken } from "./tokenStore.js";
 import { YouTubeApiError, type YouTubeChannelInfo, type YouTubeProvider, type YouTubeUploadMetadata } from "./youtubeProvider.js";
 
 // Minimum scopes for the actual functionality used: uploading a video +
-// its thumbnail, and reading back the connected channel's own identity to
+// reading back the connected channel's own identity to
 // show real "Connected as <channel>" status. Nothing broader (no
 // youtube.force-ssl, no full "youtube" scope) since nothing here manages
 // playlists, comments, or subscriptions.
@@ -87,15 +88,16 @@ export class YouTubeDataApiProvider implements YouTubeProvider {
         expiryDate: tokens.expiry_date ?? stored.expiryDate,
         channel: stored.channel,
         connectedAt: stored.connectedAt,
-      });
+      }).catch(error=>console.error("Could not persist refreshed YouTube credentials:",error instanceof Error?error.message:"Database failure"));
     });
     return { client, stored };
   }
 
   async isConnected(): Promise<boolean> {
     const stored = await readToken();
-    return Boolean(stored?.refreshToken);
+    return Boolean(stored?.refreshToken&&!stored.connectionError);
   }
+  async getConnectionError():Promise<string|null>{return (await readToken())?.connectionError??null;}
 
   getAuthUrl(state: string): string {
     const client = this.createOAuthClient();
@@ -208,22 +210,10 @@ export class YouTubeDataApiProvider implements YouTubeProvider {
       return { videoId };
     } catch (err) {
       if (err instanceof YouTubeApiError) throw err;
-      throw classifyError(err);
+      const classified=classifyError(err);
+      if(classified.reason==="invalid_grant")await writeToken({...authorized.stored,connectionError:classified.message});
+      throw classified;
     }
   }
 
-  async uploadThumbnail(videoId: string, thumbnailPath: string): Promise<void> {
-    const authorized = await this.getAuthorizedClient();
-    if (!authorized) throw new YouTubeApiError("YouTube is not connected.", "not_connected");
-
-    const youtube = google.youtube({ version: "v3", auth: authorized.client });
-    try {
-      await youtube.thumbnails.set({
-        videoId,
-        media: { body: createReadStream(thumbnailPath) },
-      });
-    } catch (err) {
-      throw classifyError(err);
-    }
-  }
 }

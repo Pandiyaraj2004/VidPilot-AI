@@ -60,4 +60,16 @@ describe("parseAndValidateContent", () => {
     const result = parseAndValidateContent(JSON.stringify(broken));
     expect(result.ok).toBe(false);
   });
+
+  it("normalizes the historical numeric scene ID and missing total duration safely", () => {
+    const result=parseAndValidateContent(JSON.stringify({...VALID_CONTENT,estimatedDuration:undefined,scenes:[{...VALID_CONTENT.scenes[0],id:1}]}));
+    expect(result.ok).toBe(true);expect(result.value?.scenes[0].id).toBe("1");expect(result.value?.estimatedDuration).toBe(12);
+  });
+  it("rejects an empty conclusion without inventing an ending",()=>{
+    expect(parseAndValidateContent(JSON.stringify({...VALID_CONTENT,conclusion:" "})).ok).toBe(false);
+  });
+  it("does not invent missing scene durations or discard invalid scenes",()=>{
+    const result=parseAndValidateContent(JSON.stringify({...VALID_CONTENT,estimatedDuration:undefined,scenes:[{...VALID_CONTENT.scenes[0],estimatedDuration:undefined}]}));
+    expect(result.ok).toBe(false);expect(result.errors.some(e=>e.includes("estimatedDuration"))).toBe(true);
+  });
 });

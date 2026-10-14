@@ -1,26 +1,21 @@
-# Render.com — VidPilot backend (Web Service)
-# Free tier is 512 MB RAM (runtime memory, not disk). node_modules on disk is ~450 MB
-# after production prune + cache cleanup (see buildCommand); that does not equal RAM use.
-# Remotion + Chrome rendering often needs 1–2 GB+ RAM and may OOM on free tier;
-# free tier can reliably run API, scheduler, Telegram/YouTube; use Starter (2 GB+) for renders.
+# Free API host only. Run the rendering worker on an existing machine with
+# Piper, FFmpeg/FFprobe and Chrome installed. No paid service is provisioned.
 services:
   - type: web
     name: vidpilot-backend
     runtime: node
     rootDir: backend
     plan: free
-    # tsc needs ~2 GB RAM — cannot run on Render free (512 MB). backend/dist is committed from CI/local build.
-    buildCommand: npm ci --omit=dev && rm -rf node_modules/.cache
+    buildCommand: npm ci --omit=dev
     startCommand: node dist/server.js
-    healthCheckPath: /api/status
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: 22
+      - key: WORKER_ENABLED
+        value: "false"
       - key: NODE_OPTIONS
-        value: --max-old-space-size=460
-      - key: PORT
-        value: 4000
-      # Set in Render dashboard (never commit secrets):
-      # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY,
-      # TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
-      # YOUTUBE_REDIRECT_URI, FRONTEND_URL, PIXABAY_API_KEY, PEXELS_API_KEY, JAMENDO_CLIENT_ID
+        value: --max-old-space-size=400
+      # Set secrets and FRONTEND_URL in the dashboard; see DEPLOYMENT.md.

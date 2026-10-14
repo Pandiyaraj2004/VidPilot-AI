@@ -54,9 +54,7 @@ export function validateYoutubeTitle(title: string): TitleValidationResult {
 /**
  * A live AI call to regenerate a title is deliberately NOT triggered here.
  * Phase 9's metadata quality validator already fails a job outright (a
- * CRITICAL issue, blocking the approval gate entirely — see
  * metadataQualityValidator.ts) when job.content.title is missing, so by
- * the time a job is QC-PASSED and Telegram-APPROVED, a real AI-generated
  * title is already guaranteed to exist. This is pure defense-in-depth for
  * an otherwise-unreachable case, so a deterministic fallback from the
  * job's own topic is the right amount of machinery — not a second

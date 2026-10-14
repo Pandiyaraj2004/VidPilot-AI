@@ -1,3 +1,4 @@
+import { signedMediaUrl } from "../../middleware/auth.js";
 import { config } from "../../config/env.js";
 import type { ContentCategory, VideoScene } from "../../types/index.js";
 import { concatScenesWithTransitions, type SceneTransitionSpec } from "./sceneTransitionConcat.js";
@@ -64,7 +65,7 @@ export async function renderJobVideo(options: RenderEngineOptions): Promise<Rend
       }
 
       const outputPath = getSceneRenderPath(options.jobId, scene.order);
-      const audioUrl = `http://127.0.0.1:${config.port}/api/jobs/${options.jobId}/scenes/${scene.id}/audio`;
+      const audioUrl = signedMediaUrl(`http://127.0.0.1:${config.port}/api/jobs/${options.jobId}/scenes/${scene.id}/audio`);
 
       // Validate Phase 5 segments if present: no segment should exceed audio duration
       if (scene.visual.segments && scene.visual.segments.length > 0) {
@@ -85,7 +86,7 @@ export async function renderJobVideo(options: RenderEngineOptions): Promise<Rend
         ...seg,
         mediaUrl:
           seg.mediaKind !== "color" && seg.assetId
-            ? `http://127.0.0.1:${config.port}/api/jobs/${options.jobId}/visuals/${seg.assetId}`
+            ? signedMediaUrl(`http://127.0.0.1:${config.port}/api/jobs/${options.jobId}/visuals/${seg.assetId}`)
             : undefined,
       }));
 

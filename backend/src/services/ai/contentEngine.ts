@@ -1,3 +1,4 @@
+import { simpleEnglishIssues } from "./english.js";
 import type { AIProviderName, VideoContent } from "../../types/index.js";
 import { GeminiProvider } from "./geminiProvider.js";
 import { OpenRouterProvider } from "./openRouterProvider.js";
@@ -54,7 +55,7 @@ export async function generateVideoContent(
           continue;
         }
 
-        const qualityErrors = validateContentQuality(parsed.value, ctx.durationSeconds);
+        const qualityErrors = [...validateContentQuality(parsed.value, ctx.durationSeconds), ...simpleEnglishIssues(parsed.value.scenes.map(s=>s.narration).join(" "),ctx.language)];
         if (qualityErrors.length > 0) {
           lastErrorMessage = `${provider.name}: ${qualityErrors.join("; ")}`;
           repairIssues = qualityErrors;

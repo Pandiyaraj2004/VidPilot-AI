@@ -8,7 +8,6 @@ const COMPOSITION_ID = "Scene";
 
 let cachedBundleUrl: string | null = null;
 
-/** Bundling is expensive (webpack) and the composition source never changes at runtime, so bundle once per process and reuse it for every scene render — exported so thumbnailRenderer.ts (Phase 11) can render the same project's "Thumbnail" composition without a second, separate bundle. */
 export async function getBundleUrl(): Promise<string> {
   if (cachedBundleUrl) return cachedBundleUrl;
   const remotionDir = path.join(process.cwd(), "remotion");
@@ -139,6 +138,7 @@ export async function renderScene(input: RenderSceneInput, browser: HeadlessBrow
   });
 
   await renderMedia({
+    concurrency: Math.max(1,Math.min(4,Number(process.env.RENDER_CONCURRENCY)||1)),
     composition,
     serveUrl,
     codec: "h264",

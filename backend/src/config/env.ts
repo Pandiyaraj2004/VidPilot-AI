@@ -1,5 +1,7 @@
 import "dotenv/config";
 import path from "node:path";
+import { tmpdir } from "node:os";
+const temporaryMediaRoot=process.env.MEDIA_TEMP_DIR??path.join(tmpdir(),"vidpilot-ai");
 
 interface AppConfig {
   port: number;
@@ -70,12 +72,6 @@ interface AppConfig {
     /** Separate, longer timeout for the actual audio download — Jamendo's storage CDN measured well under 200 KB/s from this environment, so a multi-MB track routinely needs 20-30s+; reusing the search timeout here was cutting off otherwise-successful downloads. */
     jamendoDownloadTimeoutMs: number;
   };
-  telegram: {
-    botToken: string | undefined;
-    chatId: string | undefined;
-    /** Validated against Telegram's own X-Telegram-Bot-Api-Secret-Token header on incoming webhook requests. Optional — the long-poll transport (services/telegram/telegramPoller.ts) doesn't need it. */
-    webhookSecret: string | undefined;
-  };
   youtube: {
     googleClientId: string | undefined;
     googleClientSecret: string | undefined;
@@ -108,28 +104,28 @@ export const config: AppConfig = {
     geminiApiKey: process.env.GEMINI_API_KEY,
     geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
     openRouterApiKey: process.env.OPENROUTER_API_KEY,
-    openRouterModel: process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
+    openRouterModel: process.env.OPENROUTER_MODEL ?? "openrouter/free",
     requestTimeoutMs: Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 45000),
   },
   piper: {
-    executablePath: process.env.PIPER_EXECUTABLE_PATH ?? path.join(process.cwd(), "vendor", "piper", "piper.exe"),
+    executablePath: process.env.PIPER_EXECUTABLE_PATH ?? (process.platform === "win32" ? path.join(process.cwd(), "vendor", "piper", "piper.exe") : "/usr/local/bin/piper"),
     espeakDataPath: process.env.PIPER_ESPEAK_DATA_PATH ?? path.join(process.cwd(), "vendor", "piper", "espeak-ng-data"),
     voicesDir: process.env.PIPER_VOICES_DIR ?? path.join(process.cwd(), "vendor", "piper-voices"),
-    storageDir: process.env.VOICE_STORAGE_DIR ?? path.join(process.cwd(), "storage", "jobs"),
+    storageDir: process.env.VOICE_STORAGE_DIR ?? path.join(temporaryMediaRoot, "jobs"),
     processTimeoutMs: Number(process.env.PIPER_TIMEOUT_MS ?? 30000),
   },
   ffmpeg: {
     ffmpegPath:
       process.env.FFMPEG_PATH ??
-      path.join(process.cwd(), "vendor", "ffmpeg", "ffmpeg-n7.1-latest-win64-gpl-7.1", "bin", "ffmpeg.exe"),
+      (process.platform === "win32" ? path.join(process.cwd(), "vendor", "ffmpeg", "ffmpeg-n7.1-latest-win64-gpl-7.1", "bin", "ffmpeg.exe") : "/usr/bin/ffmpeg"),
     ffprobePath:
       process.env.FFPROBE_PATH ??
-      path.join(process.cwd(), "vendor", "ffmpeg", "ffmpeg-n7.1-latest-win64-gpl-7.1", "bin", "ffprobe.exe"),
+      (process.platform === "win32" ? path.join(process.cwd(), "vendor", "ffmpeg", "ffmpeg-n7.1-latest-win64-gpl-7.1", "bin", "ffprobe.exe") : "/usr/bin/ffprobe"),
     processTimeoutMs: Number(process.env.FFMPEG_TIMEOUT_MS ?? 120000),
   },
   rendering: {
     fontsDir: process.env.FONTS_DIR ?? path.join(process.cwd(), "assets", "fonts"),
-    storageDir: process.env.VIDEO_STORAGE_DIR ?? path.join(process.cwd(), "storage", "jobs"),
+    storageDir: process.env.VIDEO_STORAGE_DIR ?? path.join(temporaryMediaRoot, "jobs"),
     // Vertical Shorts by default — set VIDEO_WIDTH=1920/VIDEO_HEIGHT=1080 to
     // switch a deployment back to landscape; nothing else needs to change,
     // see remotion/Root.tsx's calculateMetadata.
@@ -137,7 +133,7 @@ export const config: AppConfig = {
     height: Number(process.env.VIDEO_HEIGHT ?? 1920),
     fps: Number(process.env.VIDEO_FPS ?? 30),
     chromiumExecutablePath:
-      process.env.CHROMIUM_EXECUTABLE_PATH ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      process.env.CHROMIUM_EXECUTABLE_PATH ?? (process.platform === "win32" ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" : "/usr/bin/chromium"),
     renderTimeoutMs: Number(process.env.RENDER_TIMEOUT_MS ?? 300000),
   },
   edgeTts: {
@@ -148,7 +144,7 @@ export const config: AppConfig = {
     pexelsApiKey: process.env.PEXELS_API_KEY,
     maxVideoHeight: Number(process.env.VISUAL_MAX_VIDEO_HEIGHT ?? 720),
     maxImageWidth: Number(process.env.VISUAL_MAX_IMAGE_WIDTH ?? 1600),
-    assetCacheDir: process.env.VISUAL_ASSET_CACHE_DIR ?? path.join(process.cwd(), "storage", "visual-cache"),
+    assetCacheDir: process.env.VISUAL_ASSET_CACHE_DIR ?? path.join(temporaryMediaRoot, "visual-cache"),
     requestTimeoutMs: Number(process.env.VISUAL_REQUEST_TIMEOUT_MS ?? 15000),
     maxAssetsPerJob: Number(process.env.VISUAL_MAX_ASSETS_PER_JOB ?? 60),
   },
@@ -159,14 +155,9 @@ export const config: AppConfig = {
     sfxVolume: Number(process.env.SFX_VOLUME ?? 0.7),
     jamendoClientId: process.env.JAMENDO_CLIENT_ID,
     jamendoClientSecret: process.env.JAMENDO_CLIENT_SECRET,
-    jamendoCacheDir: process.env.JAMENDO_CACHE_DIR ?? path.join(process.cwd(), "storage", "jamendo-cache"),
+    jamendoCacheDir: process.env.JAMENDO_CACHE_DIR ?? path.join(temporaryMediaRoot, "jamendo-cache"),
     jamendoTimeoutMs: Number(process.env.JAMENDO_TIMEOUT_MS ?? 15000),
     jamendoDownloadTimeoutMs: Number(process.env.JAMENDO_DOWNLOAD_TIMEOUT_MS ?? 45000),
-  },
-  telegram: {
-    botToken: process.env.TELEGRAM_BOT_TOKEN,
-    chatId: process.env.TELEGRAM_CHAT_ID,
-    webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET,
   },
   youtube: {
     googleClientId: process.env.GOOGLE_CLIENT_ID,

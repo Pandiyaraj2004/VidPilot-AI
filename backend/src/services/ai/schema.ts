@@ -33,7 +33,7 @@ export const VideoContentSchema = z.object({
   hook: z.string().min(1),
   introduction: z.string().min(1),
   scenes: z.array(VideoSceneSchema).min(1),
-  conclusion: z.string().default(""),
+  conclusion: z.string().trim().min(1),
   description: z.string().min(1),
   tags: z.array(z.string().min(1)).min(1),
   estimatedDuration: z.number().positive(),
@@ -64,6 +64,13 @@ export function parseAndValidateContent(rawText: string): ParseResult {
     return { ok: false, errors: ["The AI response was not valid JSON."] };
   }
 
+  // Normalize only lossless IDs and a duration derived from valid scene durations.
+  // Never synthesize missing narration, conclusions, facts, or scenes.
+  if(json && typeof json === "object" && "scenes" in json && Array.isArray(json.scenes)) {
+    for(const scene of json.scenes) if(scene && typeof scene.id === "number" && Number.isSafeInteger(scene.id)) scene.id=String(scene.id);
+    if(!("estimatedDuration" in json) && json.scenes.length && json.scenes.every(s=>typeof s.estimatedDuration === "number" && Number.isFinite(s.estimatedDuration) && s.estimatedDuration>0))
+      Object.assign(json,{estimatedDuration:json.scenes.reduce((sum,s)=>sum+s.estimatedDuration,0)});
+  }
   const result = VideoContentSchema.safeParse(json);
   if (!result.success) {
     const errors = result.error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`);

@@ -2,7 +2,6 @@ import type { NextFunction, Request, Response } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import * as jobService from "../services/jobs/jobService.js";
-import { sendApprovalRequestForJob } from "../services/telegram/sendApproval.js";
 import { cacheAssetPath, readCachedAsset } from "../services/visual/assetCache.js";
 import type { JobStatus } from "../types/index.js";
 import { isSupabaseConfigured } from "../services/supabase/index.js";
@@ -232,28 +231,7 @@ export async function qualityReportHandler(req: Request, res: Response, next: Ne
   }
 }
 
-export async function sendApprovalHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const resend = req.body?.resend === true;
-    const job = await sendApprovalRequestForJob(req.params.id, { resend });
-    res.json(job);
-  } catch (err) {
-    next(err);
-  }
-}
 
-export async function getApprovalHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const job = await jobService.getJobOrThrow(req.params.id);
-    if (!job.approval) {
-      res.status(404).json({ error: "No approval has been requested for this job yet." });
-      return;
-    }
-    res.json(job.approval);
-  } catch (err) {
-    next(err);
-  }
-}
 
 export async function uploadYoutubeHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

@@ -1,3 +1,4 @@
+import { RuntimeState } from "../runtime/state.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +10,7 @@ import type { SubtitleEngineResult } from "../subtitle/subtitleEngine.js";
 import type { RenderEngineOptions, RenderEngineResult } from "../video/renderEngine.js";
 import type { VideoValidationResult } from "../video/videoValidator.js";
 import type { YouTubeProvider, YouTubeUploadMetadata } from "../youtube/youtubeProvider.js";
+import {YouTubeApiError} from "../youtube/youtubeProvider.js";
 import type { CreateJobInput, QualityReport, VideoJob, VideoScene } from "../../types/index.js";
 import { HttpError, NotFoundError, ValidationError } from "../../utils/errors.js";
 import { createJobOrchestrator } from "./jobService.js";
@@ -24,8 +26,6 @@ const BASE_INPUT: CreateJobInput = {
   voiceSpeed: 1.0,
   visualStyle: "automatic",
   subtitlesEnabled: true,
-  thumbnailEnabled: true,
-  approvalRequired: true,
   youtubeVisibility: "private",
 };
 
@@ -565,255 +565,11 @@ describe("Phase 5 upgrade: regenerateVisualsForScene", () => {
   });
 });
 
-describe("Phase 10: Telegram approval state machine", () => {
-  let dir: string;
-  let repo: LocalJobRepository;
-  let service: ReturnType<typeof createJobOrchestrator>;
-
-  beforeEach(() => {
-    dir = mkdtempSync(path.join(tmpdir(), "vidpilot-approval-test-"));
-    repo = new LocalJobRepository(dir);
-    service = createJobOrchestrator(repo);
-  });
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  /** Fabricates a job already past rendering/QC, without running the full pipeline — approval logic only cares about status/videoRender/approval. */
-  async function makeReadyJob(overrides: Partial<VideoJob> = {}): Promise<VideoJob> {
-    const created = await repo.createJob(BASE_INPUT);
-    return repo.updateJob(created.id, {
-      status: "ready",
-      videoRender: {
-        status: "ready",
-        generatedAt: new Date().toISOString(),
-        durationSeconds: 30,
-        width: 1080,
-        height: 1920,
-        fps: 30,
-        videoCodec: "h264",
-        audioCodec: "aac",
-        fileSizeBytes: 5_000_000,
-        path: "/fake/storage/final.mp4",
-        error: null,
-      },
-      ...overrides,
-    });
-  }
-
-  async function makeSentJob(): Promise<VideoJob> {
-    const ready = await makeReadyJob();
-    return service.recordApprovalSent(ready.id, 111);
-  }
-
-  describe("prepareApprovalSend", () => {
-    it("returns the job when it's READY with a valid render", async () => {
-      const ready = await makeReadyJob();
-      const job = await service.prepareApprovalSend(ready.id);
-      expect(job.id).toBe(ready.id);
-    });
-
-    it("also allows re-sending a job already AWAITING_APPROVAL", async () => {
-      const sent = await makeSentJob();
-      const job = await service.prepareApprovalSend(sent.id);
-      expect(job.status).toBe("awaiting_approval");
-    });
-
-    it("rejects a job that hasn't rendered yet", async () => {
-      const job = await service.createJob(BASE_INPUT);
-      await expect(service.prepareApprovalSend(job.id)).rejects.toThrow(ValidationError);
-    });
-
-    it("rejects a job whose video render isn't ready", async () => {
-      const ready = await makeReadyJob({
-        videoRender: {
-          status: "failed",
-          generatedAt: null,
-          durationSeconds: null,
-          width: null,
-          height: null,
-          fps: null,
-          videoCodec: null,
-          audioCodec: null,
-          fileSizeBytes: null,
-          path: null,
-          error: "boom",
-        },
-      });
-      await expect(service.prepareApprovalSend(ready.id)).rejects.toThrow(ValidationError);
-    });
-
-    it("rejects a video over Telegram's real bot-upload size limit", async () => {
-      const ready = await makeReadyJob({
-        videoRender: {
-          status: "ready",
-          generatedAt: new Date().toISOString(),
-          durationSeconds: 30,
-          width: 1080,
-          height: 1920,
-          fps: 30,
-          videoCodec: "h264",
-          audioCodec: "aac",
-          fileSizeBytes: 60 * 1024 * 1024,
-          path: "/fake/storage/final.mp4",
-          error: null,
-        },
-      });
-      await expect(service.prepareApprovalSend(ready.id)).rejects.toThrow(/50MB/);
-    });
-  });
-
-  describe("recordApprovalSent", () => {
-    it("moves the job to AWAITING_APPROVAL with version 1 on the first send", async () => {
-      const ready = await makeReadyJob();
-      const sent = await service.recordApprovalSent(ready.id, 555);
-      expect(sent.status).toBe("awaiting_approval");
-      expect(sent.telegramMessageId).toBe("555");
-      expect(sent.approval).toMatchObject({ status: "sent", version: 1, renderVersion: 0, decision: null });
-      expect(sent.approval?.sentAt).toBeTruthy();
-    });
-
-    it("increments the version on a resend rather than resetting it", async () => {
-      const sent = await makeSentJob();
-      const resent = await service.recordApprovalSent(sent.id, 222);
-      expect(resent.approval?.version).toBe(2);
-    });
-  });
-
-  describe("approveJob", () => {
-    it("approves a job whose version matches and clears its buttons state", async () => {
-      const sent = await makeSentJob();
-      const result = await service.approveJob(sent.id, sent.approval!.version);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.job.status).toBe("approved");
-        expect(result.job.approval?.status).toBe("approved");
-        expect(result.job.approval?.decision).toBe("approved");
-        expect(result.job.approvedAt).toBeTruthy();
-      }
-    });
-
-    it("rejects a stale version (an older Telegram message tapped after a resend)", async () => {
-      const sent = await makeSentJob();
-      await service.recordApprovalSent(sent.id, 999); // bumps to version 2
-      const result = await service.approveJob(sent.id, 1);
-      expect(result).toEqual({ ok: false, reason: "stale_version" });
-    });
-
-    it("is idempotent — a second tap on an already-approved job is a no-op, not a double-approval", async () => {
-      const sent = await makeSentJob();
-      const version = sent.approval!.version;
-      const first = await service.approveJob(sent.id, version);
-      expect(first.ok).toBe(true);
-      const second = await service.approveJob(sent.id, version);
-      // The first approve already moved the job off "awaiting_approval", so
-      // the second tap is rejected there — no separate "already decided" state.
-      expect(second).toEqual({ ok: false, reason: "not_awaiting_approval" });
-    });
-
-    it("rejects a job that was never sent for approval", async () => {
-      const ready = await makeReadyJob();
-      const result = await service.approveJob(ready.id, 1);
-      expect(result).toEqual({ ok: false, reason: "not_awaiting_approval" });
-    });
-
-    it("reports not_found for an unknown job id", async () => {
-      const result = await service.approveJob("does-not-exist", 1);
-      expect(result).toEqual({ ok: false, reason: "not_found" });
-    });
-  });
-
-  describe("recordPendingRejectionPrompt + rejectJob", () => {
-    it("records the reason-prompt message id without changing job status", async () => {
-      const sent = await makeSentJob();
-      const result = await service.recordPendingRejectionPrompt(sent.id, sent.approval!.version, 42);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.job.status).toBe("awaiting_approval");
-        expect(result.job.approval?.pendingReasonPromptMessageId).toBe(42);
-      }
-    });
-
-    it("rejects a job with a real reason and clears the pending prompt id", async () => {
-      const sent = await makeSentJob();
-      const version = sent.approval!.version;
-      await service.recordPendingRejectionPrompt(sent.id, version, 42);
-
-      const result = await service.rejectJob(sent.id, version, "Captions overlap the subject.");
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.job.status).toBe("rejected");
-        expect(result.job.approval?.status).toBe("rejected");
-        expect(result.job.approval?.reason).toBe("Captions overlap the subject.");
-        expect(result.job.approval?.pendingReasonPromptMessageId).toBeNull();
-      }
-    });
-
-    it("rejects a stale-version quick-reason tap", async () => {
-      const sent = await makeSentJob();
-      await service.recordApprovalSent(sent.id, 999); // bumps to version 2
-      const result = await service.rejectJob(sent.id, 1, "Voice");
-      expect(result).toEqual({ ok: false, reason: "stale_version" });
-    });
-  });
-
-  describe("findJobAwaitingReasonReply", () => {
-    it("finds the one job whose pending prompt id matches", async () => {
-      const jobA = await makeSentJob();
-      const jobB = await makeSentJob();
-      await service.recordPendingRejectionPrompt(jobA.id, jobA.approval!.version, 100);
-      await service.recordPendingRejectionPrompt(jobB.id, jobB.approval!.version, 200);
-
-      const found = await service.findJobAwaitingReasonReply(200);
-      expect(found?.id).toBe(jobB.id);
-    });
-
-    it("returns null when no job is waiting on that prompt id", async () => {
-      await makeSentJob();
-      const found = await service.findJobAwaitingReasonReply(999999);
-      expect(found).toBeNull();
-    });
-  });
-
-  describe("renderVideoForJob resets approval", () => {
-    it("bumps renderVersion and clears any prior approval on a fresh successful render", async () => {
-      const renderService = createJobOrchestrator(
-        repo,
-        async () => fakeContent(),
-        fakeVoiceSuccess(),
-        fakeVisualSuccess(),
-        fakeSubtitleSuccess(),
-        fakeRenderSuccess(),
-        fakeValidateSuccess()
-      );
-      const job = await renderService.createJob(BASE_INPUT);
-      await renderService.processQueuedJob(job.id);
-      await renderService.generateVoiceForJob(job.id);
-      const rendered = await renderService.renderVideoForJob(job.id);
-      expect(rendered.renderVersion).toBe(1);
-      expect(rendered.approval).toBeNull();
-
-      // Simulate a prior approval round having been sent, then re-render (e.g. after a scene fix).
-      await repo.updateJob(job.id, { status: "ready" });
-      const sent = await service.recordApprovalSent(job.id, 1);
-      expect(sent.approval?.version).toBe(1);
-
-      await repo.updateJob(job.id, { status: "voice_ready" });
-      const reRendered = await renderService.renderVideoForJob(job.id);
-      expect(reRendered.renderVersion).toBe(2);
-      expect(reRendered.approval).toBeNull();
-    });
-  });
-});
-
-/** Test-only YouTubeProvider — see youtubeProvider.ts's own doc comment anticipating exactly this. Never calls a real Google API. */
 class FakeYouTubeProvider implements YouTubeProvider {
   configured = true;
   connected = true;
   uploadError: Error | null = null;
   uploadCalls: { filePath: string; metadata: YouTubeUploadMetadata }[] = [];
-  thumbnailCalls: { videoId: string; thumbnailPath: string }[] = [];
 
   isConfigured(): boolean {
     return this.configured;
@@ -837,9 +593,6 @@ class FakeYouTubeProvider implements YouTubeProvider {
     this.uploadCalls.push(input);
     if (this.uploadError) throw this.uploadError;
     return { videoId: "fake-video-id" };
-  }
-  async uploadThumbnail(videoId: string, thumbnailPath: string): Promise<void> {
-    this.thumbnailCalls.push({ videoId, thumbnailPath });
   }
 }
 
@@ -895,14 +648,14 @@ describe("Phase 11: YouTube upload state machine", () => {
   });
 
   function makeService(validateVideo = fakeValidateAlwaysValid()) {
-    return createJobOrchestrator(repo, undefined, undefined, undefined, undefined, undefined, validateVideo, undefined, youtube);
+    return createJobOrchestrator(repo, undefined, undefined, undefined, undefined, undefined, validateVideo, undefined, youtube, new RuntimeState(path.join(dir,"state")));
   }
 
   /** Fabricates a job already approved for its current render, with a PASS quality report — upload logic only cares about these durable records, same convention as Phase 10's makeReadyJob. */
-  async function makeApprovedJob(overrides: Partial<VideoJob> = {}): Promise<VideoJob> {
+  async function makeQcPassedJob(overrides: Partial<VideoJob> = {}): Promise<VideoJob> {
     const created = await repo.createJob(BASE_INPUT);
     return repo.updateJob(created.id, {
-      status: "approved",
+      status: "qc_passed",
       renderVersion: 1,
       videoRender: {
         status: "ready",
@@ -918,16 +671,6 @@ describe("Phase 11: YouTube upload state machine", () => {
         error: null,
       },
       qualityReport: fakeQualityReport("PASS"),
-      approval: {
-        status: "approved",
-        version: 1,
-        renderVersion: 1,
-        sentAt: new Date().toISOString(),
-        decision: "approved",
-        reason: null,
-        decidedAt: new Date().toISOString(),
-        pendingReasonPromptMessageId: null,
-      },
       content: {
         title: "Test Title",
         hook: "hook",
@@ -942,9 +685,9 @@ describe("Phase 11: YouTube upload state machine", () => {
     });
   }
 
-  it("uploads successfully when approved, QC PASS, and connected", async () => {
+  it("uploads successfully after QC PASS, and connected", async () => {
     const service = makeService();
-    const job = await makeApprovedJob();
+    const job = await makeQcPassedJob();
 
     const published = await service.uploadVideoForJob(job.id);
 
@@ -958,25 +701,11 @@ describe("Phase 11: YouTube upload state machine", () => {
     expect(youtube.uploadCalls[0].filePath).toBe("/fake/storage/final.mp4");
   });
 
-  it("rejects upload when the job was never approved", async () => {
-    const service = makeService();
-    const job = await makeApprovedJob({ status: "ready", approval: null });
 
-    await expect(service.uploadVideoForJob(job.id)).rejects.toThrow(ValidationError);
-    expect(youtube.uploadCalls).toHaveLength(0);
-  });
-
-  it("rejects upload when approval is stale (job was re-rendered after approval)", async () => {
-    const service = makeService();
-    const job = await makeApprovedJob({ renderVersion: 2 }); // approval.renderVersion stays 1
-
-    await expect(service.uploadVideoForJob(job.id)).rejects.toThrow(ValidationError);
-    expect(youtube.uploadCalls).toHaveLength(0);
-  });
 
   it("rejects upload when the quality report is not a PASS", async () => {
     const service = makeService();
-    const job = await makeApprovedJob({ qualityReport: fakeQualityReport("WARN") });
+    const job = await makeQcPassedJob({ qualityReport: fakeQualityReport("WARN") });
 
     await expect(service.uploadVideoForJob(job.id)).rejects.toThrow(ValidationError);
     expect(youtube.uploadCalls).toHaveLength(0);
@@ -984,7 +713,7 @@ describe("Phase 11: YouTube upload state machine", () => {
 
   it("rejects upload when there is no ready rendered video", async () => {
     const service = makeService();
-    const job = await makeApprovedJob({
+    const job = await makeQcPassedJob({
       videoRender: {
         status: "failed",
         generatedAt: null,
@@ -1007,7 +736,7 @@ describe("Phase 11: YouTube upload state machine", () => {
   it("rejects upload when YouTube is not connected", async () => {
     youtube.connected = false;
     const service = makeService();
-    const job = await makeApprovedJob();
+    const job = await makeQcPassedJob();
 
     await expect(service.uploadVideoForJob(job.id)).rejects.toThrow(ValidationError);
     expect(youtube.uploadCalls).toHaveLength(0);
@@ -1016,7 +745,7 @@ describe("Phase 11: YouTube upload state machine", () => {
   it("rejects upload when YouTube is not configured at all", async () => {
     youtube.configured = false;
     const service = makeService();
-    const job = await makeApprovedJob();
+    const job = await makeQcPassedJob();
 
     await expect(service.uploadVideoForJob(job.id)).rejects.toThrow(ValidationError);
     expect(youtube.uploadCalls).toHaveLength(0);
@@ -1024,7 +753,7 @@ describe("Phase 11: YouTube upload state machine", () => {
 
   it("refuses to upload a job that was already published (idempotency / duplicate protection)", async () => {
     const service = makeService();
-    const job = await makeApprovedJob();
+    const job = await makeQcPassedJob();
     const published = await service.uploadVideoForJob(job.id);
     expect(published.youtube?.videoId).toBe("fake-video-id");
 
@@ -1035,7 +764,7 @@ describe("Phase 11: YouTube upload state machine", () => {
 
   it("re-validates the actual rendered file before uploading, never trusting stored metadata alone", async () => {
     const service = makeService(async () => ({ valid: false, errors: ["file is corrupt"] }));
-    const job = await makeApprovedJob();
+    const job = await makeQcPassedJob();
 
     await expect(service.uploadVideoForJob(job.id)).rejects.toThrow(HttpError);
     expect(youtube.uploadCalls).toHaveLength(0);
@@ -1049,44 +778,28 @@ describe("Phase 11: YouTube upload state machine", () => {
   it("marks the job FAILED and records the real error when the provider throws", async () => {
     youtube.uploadError = new Error("quota exceeded");
     const service = makeService();
-    const job = await makeApprovedJob();
+    const job = await makeQcPassedJob();
 
     await expect(service.uploadVideoForJob(job.id)).rejects.toThrow(HttpError);
 
     const failed = await service.getJobOrThrow(job.id);
     expect(failed.status).toBe("failed");
-    expect(failed.youtube?.status).toBe("failed");
+    expect(failed.youtube?.status).toBe("uncertain");
     expect(failed.youtube?.lastError).toContain("quota exceeded");
-    // A failed upload doesn't retroactively revoke the approval that was
-    // already granted — a retry should not need to go back through Telegram.
-    expect(failed.approval?.status).toBe("approved");
+    await expect(service.uploadVideoForJob(job.id)).rejects.toThrow(/already started/);
+    expect(youtube.uploadCalls).toHaveLength(1);
+  });
+  it("permits a safe retry after a definitive OAuth rejection",async()=>{
+    youtube.uploadError=new YouTubeApiError("Reconnect YouTube","invalid_grant");const service=makeService();const job=await makeQcPassedJob();
+    await expect(service.uploadVideoForJob(job.id)).rejects.toThrow("Reconnect YouTube");
+    expect((await service.getJobOrThrow(job.id)).youtube?.status).toBe("failed");
+    youtube.uploadError=null;expect((await service.uploadVideoForJob(job.id)).status).toBe("published");
   });
 
-  it("uploads a thumbnail when one is ready, without failing the video upload if the thumbnail call fails", async () => {
-    const service = makeService();
-    const job = await makeApprovedJob({
-      thumbnail: {
-        status: "ready",
-        path: "/fake/storage/thumb.jpg",
-        width: 1280,
-        height: 720,
-        fileSizeBytes: 100_000,
-        headline: "Headline",
-        sourceAssetId: null,
-        generatedAt: new Date().toISOString(),
-        error: null,
-      },
-    });
-
-    const published = await service.uploadVideoForJob(job.id);
-    expect(published.youtube?.thumbnailStatus).toBe("uploaded");
-    expect(youtube.thumbnailCalls).toHaveLength(1);
-    expect(youtube.thumbnailCalls[0]).toEqual({ videoId: "fake-video-id", thumbnailPath: "/fake/storage/thumb.jpg" });
-  });
 
   it("never gets to the provider call at all when a precondition fails", async () => {
     const service = makeService();
-    const job = await makeApprovedJob({ status: "video_validation" }); // not an UPLOAD_READY_STATUS
+    const job = await makeQcPassedJob({ status: "video_validation" }); // not an UPLOAD_READY_STATUS
 
     await expect(service.uploadVideoForJob(job.id)).rejects.toThrow(ValidationError);
     expect(youtube.uploadCalls).toHaveLength(0);

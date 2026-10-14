@@ -30,10 +30,13 @@ function sequential<T>(key: string, task: () => Promise<T>): Promise<T> {
 export class LocalJobRepository implements JobRepository {
   private readonly dataFile: string;
 
-  constructor(dataDir: string = path.join(process.cwd(), "data")) {
+  constructor(dataDir: string = process.env.JOB_DATA_DIR ?? path.join(process.cwd(), "data")) {
     this.dataFile = path.join(dataDir, "jobs.local.json");
   }
 
+  async deleteJob(id:string):Promise<void> {
+    await sequential(this.dataFile,async()=>{const jobs=await this.readAll();await writeFile(this.dataFile,JSON.stringify(jobs.filter(j=>j.id!==id)),"utf8");});
+  }
   private async readAll(): Promise<VideoJob[]> {
     try {
       const raw = await readFile(this.dataFile, "utf-8");
@@ -54,6 +57,7 @@ export class LocalJobRepository implements JobRepository {
       const jobs = await this.readAll();
       const now = new Date().toISOString();
       const job: VideoJob = {
+      retentionManaged: true,
         id: randomUUID(),
         topic: input.topic.trim(),
         inputScript: input.inputScript?.trim() || null,
@@ -65,8 +69,6 @@ export class LocalJobRepository implements JobRepository {
         voiceSpeed: input.voiceSpeed,
         visualStyle: input.visualStyle,
         subtitlesEnabled: input.subtitlesEnabled,
-        thumbnailEnabled: input.thumbnailEnabled,
-        approvalRequired: input.approvalRequired,
         youtubeVisibility: input.youtubeVisibility,
         status: "queued",
         content: null,
@@ -78,17 +80,13 @@ export class LocalJobRepository implements JobRepository {
         videoRender: null,
         qualityReport: null,
         renderVersion: 0,
-        approval: null,
-        thumbnail: null,
         youtube: null,
         lastError: null,
         retryCount: 0,
         createdAt: now,
         updatedAt: now,
-        approvedAt: null,
         publishedAt: null,
         youtubeVideoId: null,
-        telegramMessageId: null,
         source: input.source || "manual",
       };
       jobs.unshift(job);

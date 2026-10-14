@@ -104,7 +104,7 @@ export async function runQualityControl(job: VideoJob, contentProvider?: Content
   const score = Math.round(rawScore);
 
   const hasFailures = failures.length > 0 || allResults.some((r) => r.status === "FAIL");
-  const status = hasFailures ? "FAIL" : warnings.length > 0 ? "WARN" : "PASS";
+  const status = hasFailures ? "FAIL" : warnings.length > 0 || allResults.some(r=>r.status === "WARN") ? "WARN" : "PASS";
 
   return {
     jobId: job.id,

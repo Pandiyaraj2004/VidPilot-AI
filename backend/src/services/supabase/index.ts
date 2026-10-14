@@ -25,6 +25,10 @@ export function getSupabaseClient(): SupabaseClient {
 
   const cleanUrl = supabaseUrl.replace(/\/rest\/v1\/?$/, "");
   clientInstance = createClient(cleanUrl, supabaseServiceKey, {
+    global:{fetch:(input,init)=>{
+      const timeout=AbortSignal.timeout(Math.max(1000,Number(process.env.SUPABASE_REQUEST_TIMEOUT_MS)||120000));
+      return fetch(input,{...init,signal:init?.signal?AbortSignal.any([init.signal,timeout]):timeout});
+    }},
     auth: {
       persistSession: false,
     },

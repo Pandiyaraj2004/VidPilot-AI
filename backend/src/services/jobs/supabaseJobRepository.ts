@@ -6,11 +6,13 @@ const TABLE = "jobs";
 const LIST_LIMIT = 200;
 
 export class SupabaseJobRepository implements JobRepository {
+  async deleteJob(id:string):Promise<void> {const {error}=await getSupabaseClient().from(TABLE).delete().eq("id",id);if(error)throw new Error(error.message);}
   async createJob(input: CreateJobInput): Promise<VideoJob> {
     const now = new Date().toISOString();
     // Generate a unique ID (mock doc ID generation using crypto)
     const id = crypto.randomUUID();
     const job: VideoJob = {
+      retentionManaged: true,
       id,
       topic: input.topic.trim(),
       inputScript: input.inputScript?.trim() || null,
@@ -22,8 +24,6 @@ export class SupabaseJobRepository implements JobRepository {
       voiceSpeed: input.voiceSpeed,
       visualStyle: input.visualStyle,
       subtitlesEnabled: input.subtitlesEnabled,
-      thumbnailEnabled: input.thumbnailEnabled,
-      approvalRequired: input.approvalRequired,
       youtubeVisibility: input.youtubeVisibility,
       status: "queued",
       content: null,
@@ -35,17 +35,13 @@ export class SupabaseJobRepository implements JobRepository {
       videoRender: null,
       qualityReport: null,
       renderVersion: 0,
-      approval: null,
-      thumbnail: null,
       youtube: null,
       lastError: null,
       retryCount: 0,
       createdAt: now,
       updatedAt: now,
-      approvedAt: null,
       publishedAt: null,
       youtubeVideoId: null,
-      telegramMessageId: null,
       source: input.source || "manual",
     };
 
@@ -79,22 +75,13 @@ export class SupabaseJobRepository implements JobRepository {
 
   async listJobs(filter?: ListJobsFilter): Promise<VideoJob[]> {
     const fetchLimit = filter?.limit !== undefined ? filter.limit : LIST_LIMIT;
-    let query = getSupabaseClient()
-      .from(TABLE)
-      .select("data")
-      .order("created_at", { ascending: false })
-      .limit(fetchLimit);
-
-    if (filter?.status) {
-      query = query.eq("status", filter.status);
+    let jobs:VideoJob[]=[];
+    for(let offset=0;offset<fetchLimit;offset+=1000){
+      let query=getSupabaseClient().from(TABLE).select("data").order("created_at",{ascending:false}).range(offset,Math.min(offset+999,fetchLimit-1));
+      if(filter?.status)query=query.eq("status",filter.status);
+      const {data,error}=await query;if(error)throw new Error(`Failed to list jobs: ${error.message}`);
+      jobs.push(...(data??[]).map(row=>row.data as VideoJob));if(!data||data.length<1000)break;
     }
-
-    const { data, error } = await query;
-    if (error) {
-      throw new Error(`Failed to list jobs from Supabase: ${error.message}`);
-    }
-
-    let jobs = (data || []).map((row) => row.data as VideoJob);
 
     if (filter?.search) {
       const term = filter.search.trim().toLowerCase();

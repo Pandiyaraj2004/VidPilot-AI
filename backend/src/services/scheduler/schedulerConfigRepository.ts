@@ -8,7 +8,6 @@ const DEFAULT_CONFIG: SchedulerConfig = {
   intervalHours: 4,
   defaultStyle: "explainer",
   defaultDurationSeconds: 35,
-  requireApproval: true,
   youtubeVisibility: "public",
   lastGenerationAt: null,
   nextGenerationAt: null,
@@ -31,7 +30,7 @@ export class SchedulerConfigRepository {
   private cacheTimestamp: number = 0;
   private static readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
 
-  constructor(dataDir: string = path.join(process.cwd(), "storage")) {
+  constructor(dataDir: string = process.env.SCHEDULER_DATA_DIR ?? path.join(process.cwd(), "storage")) {
     this.configPath = path.join(dataDir, "schedulerConfig.json");
   }
 
@@ -73,6 +72,7 @@ export class SchedulerConfigRepository {
       }
     }
 
+    loadedConfig = Object.fromEntries(Object.entries(DEFAULT_CONFIG).map(([key,fallback])=>[key,(loadedConfig as unknown as Record<string,unknown>)[key] ?? fallback])) as unknown as SchedulerConfig;
     this.cachedConfig = loadedConfig;
     this.cacheTimestamp = now;
     return loadedConfig;
@@ -80,7 +80,7 @@ export class SchedulerConfigRepository {
 
   async set(config: SchedulerConfig): Promise<SchedulerConfig> {
     const updatedConfig = {
-      ...config,
+      ...Object.fromEntries(Object.keys(DEFAULT_CONFIG).map(key=>[key,(config as unknown as Record<string,unknown>)[key]])) as unknown as SchedulerConfig,
       updatedAt: new Date().toISOString(),
     };
 

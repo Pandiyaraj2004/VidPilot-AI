@@ -12,6 +12,7 @@ export interface ListJobsFilter {
  * know or care which one is active. See services/jobs/index.ts for selection.
  */
 export interface JobRepository {
+  deleteJob(id: string): Promise<void>;
   createJob(input: CreateJobInput): Promise<VideoJob>;
   getJob(id: string): Promise<VideoJob | null>;
   listJobs(filter?: ListJobsFilter): Promise<VideoJob[]>;

@@ -1,0 +1,15 @@
+import dotenv from 'dotenv';import path from 'node:path';import {readFile,writeFile} from 'node:fs/promises';
+dotenv.config({quiet:true});
+if(!process.argv.includes('--confirm-unlisted'))throw new Error('Explicit approval of the reviewed Unlisted video is required');
+process.env.FORCE_LOCAL_STORAGE='false';
+const root=path.resolve('../maintenance/e2e');
+const {LocalJobRepository}=await import('../dist/services/jobs/localJobRepository.js');
+const {createJobOrchestrator}=await import('../dist/services/jobs/jobService.js');
+const repo=new LocalJobRepository(path.join(root,'data'));
+const saved=JSON.parse(await readFile(path.join(root,'result.json'),'utf8'));
+const job=await repo.getJob(saved.jobId);
+if(!job||job.qualityReport?.status!=='PASS'||job.youtubeVisibility!=='unlisted'||!path.resolve(job.videoRender?.path??'').startsWith(root+path.sep))throw new Error('Reviewed Unlisted video is not eligible for upload');
+const service=createJobOrchestrator(repo);
+const uploaded=await service.uploadVideoForJob(job.id);
+const result={at:new Date().toISOString(),jobId:uploaded.id,status:uploaded.status,title:uploaded.content.title,videoId:uploaded.youtubeVideoId,url:uploaded.youtube.url,visibility:uploaded.youtubeVisibility,qc:uploaded.qualityReport.status};
+await writeFile('../maintenance/youtube-unlisted-result.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));

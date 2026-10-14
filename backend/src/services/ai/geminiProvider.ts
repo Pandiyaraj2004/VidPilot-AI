@@ -12,7 +12,7 @@ import {
 // Gemini's structured-output schema uses an OpenAPI-3.0-like subset, not full JSON Schema
 // (uppercase type names, no $ref/oneOf/etc). This constrains the model to our exact shape,
 // which is far more reliable than asking nicely in the prompt — see aiProvider.ts docs.
-const RESPONSE_SCHEMA = {
+export const RESPONSE_SCHEMA = {
   type: "OBJECT",
   properties: {
     title: { type: "STRING" },
@@ -20,29 +20,30 @@ const RESPONSE_SCHEMA = {
     introduction: { type: "STRING" },
     scenes: {
       type: "ARRAY",
+      minItems: 1,
       items: {
         type: "OBJECT",
         properties: {
           id: { type: "STRING" },
-          order: { type: "INTEGER" },
+          order: { type: "INTEGER", minimum: 0 },
           narration: { type: "STRING" },
           visualDescription: { type: "STRING" },
           onScreenText: { type: "STRING" },
           estimatedDuration: { type: "NUMBER" },
           transition: { type: "STRING" },
           emotion: { type: "STRING" },
-          energy: { type: "NUMBER" },
+          energy: { type: "NUMBER", minimum: 0, maximum: 1 },
           sceneRole: { type: "STRING" },
-          highlightWords: { type: "ARRAY", items: { type: "STRING" } },
+          highlightWords: { type: "ARRAY", items: { type: "STRING" }, maxItems: 10 },
           musicMood: { type: "STRING" },
-          visualKeywords: { type: "ARRAY", items: { type: "STRING" } },
+          visualKeywords: { type: "ARRAY", items: { type: "STRING" }, maxItems: 6 },
         },
         required: ["id", "order", "narration", "visualDescription", "onScreenText", "estimatedDuration"],
       },
     },
     conclusion: { type: "STRING" },
     description: { type: "STRING" },
-    tags: { type: "ARRAY", items: { type: "STRING" } },
+    tags: { type: "ARRAY", items: { type: "STRING" }, minItems: 1 },
     estimatedDuration: { type: "NUMBER" },
   },
   required: ["title", "hook", "introduction", "scenes", "conclusion", "description", "tags", "estimatedDuration"],
@@ -65,7 +66,7 @@ export class GeminiProvider implements AIProvider {
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: RESPONSE_SCHEMA,
-        temperature: 0.9,
+        temperature: 0.6,
         maxOutputTokens: 8192,
       },
     };

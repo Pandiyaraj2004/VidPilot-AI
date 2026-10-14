@@ -1,3 +1,4 @@
+import { runtimeState, type RuntimeState } from "../runtime/state.js";
 import { generateVideoContent, type AIContentResult } from "../ai/contentEngine.js";
 import type { GenerationContext } from "../ai/prompts.js";
 import { isTooSimilar, type ContentFingerprint } from "../ai/validators.js";
@@ -11,26 +12,20 @@ import { validateVideoFile, type VideoValidationResult } from "../video/videoVal
 import { runQualityControl } from "../quality/qualityControlEngine.js";
 import { youtubeProvider as defaultYoutubeProvider } from "../youtube/index.js";
 import type { YouTubeProvider } from "../youtube/youtubeProvider.js";
+import { YouTubeApiError } from "../youtube/youtubeProvider.js";
 import { buildYoutubeUploadMetadata } from "../youtube/youtubeMetadata.js";
 import { HttpError, NotFoundError, ValidationError } from "../../utils/errors.js";
 import type {
   CreateJobInput,
-  JobApproval,
   JobStatus,
   QualityReport,
   VideoJob,
   VideoScene,
   VideoStyle,
   VisualStyle,
-  YouTubeThumbnailUploadStatus,
   YouTubeVisibility,
 } from "../../types/index.js";
 import { jobRepository as defaultJobRepository, type JobRepository, type ListJobsFilter } from "./index.js";
-import { isSupabaseConfigured } from "../supabase/index.js";
-import { uploadToSupabaseBucket } from "../supabase/storage.js";
-import { config } from "../../config/env.js";
-import path from "node:path";
-import fs from "node:fs";
 import { ensureLocalVideoFile } from "../video/videoStorage.js";
 
 const VALID_STYLES: VideoStyle[] = ["explainer", "documentary", "story", "qa", "list", "cartoon"];
@@ -59,10 +54,8 @@ const CANCELLABLE_STATUSES: JobStatus[] = [
   "generating_subtitles",
   "rendering",
   "video_validation",
-  "generating_thumbnail",
   "quality_check",
-  "ready",
-  "awaiting_approval",
+  "qc_passed",
   "regenerating",
 ];
 
@@ -78,31 +71,13 @@ const RENDER_READY_STATUSES: JobStatus[] = ["voice_ready", "video_ready", "faile
 // "ready" here means "already passed QC once" — re-running QC on a
 // previously-passed job (e.g. after a manual scene fix) is allowed, same
 // "failed" broadening rationale as the other *_READY_STATUSES above.
-const QUALITY_CHECK_READY_STATUSES: JobStatus[] = ["video_ready", "ready", "failed"];
+const QUALITY_CHECK_READY_STATUSES: JobStatus[] = ["video_ready", "qc_passed", "failed"];
 const QUALITY_CHECK_FAILURE_MESSAGE =
   "We couldn't run the quality check right now. VidPilot will retry automatically or you can try again.";
 
-// A previously-sent approval can be resent (e.g. the Telegram message was
-// dismissed) without requiring a brand new render.
-const APPROVAL_SEND_STATUSES: JobStatus[] = ["ready"];
-const APPROVAL_RESEND_STATUSES: JobStatus[] = ["awaiting_approval"];
-// Telegram's real ceiling for a bot-uploaded video via sendVideo.
-const TELEGRAM_MAX_VIDEO_BYTES = 50 * 1024 * 1024;
-
-// "failed" here means "failed at a previous upload attempt" — approval is
-// separately re-checked below (status === "approved" AND renderVersion
-// still matches), so a job that failed upload can be retried without
-// re-approving, but a job that was never approved (or whose approval is now
-// stale because of a fresh render) can never reach this branch regardless
-// of job.status.
-const UPLOAD_READY_STATUSES: JobStatus[] = ["approved", "failed"];
+const UPLOAD_READY_STATUSES: JobStatus[] = ["qc_passed", "failed"];
 const YOUTUBE_UPLOAD_FAILURE_MESSAGE =
   "We couldn't upload this video to YouTube right now. You can try again once the issue is resolved.";
-
-export type ApprovalActionFailureReason = "not_found" | "not_awaiting_approval" | "stale_version";
-export type ApprovalActionResult =
-  | { ok: true; job: VideoJob }
-  | { ok: false; reason: ApprovalActionFailureReason };
 
 export function validateCreateJobInput(input: CreateJobInput): string[] {
   const errors: string[] = [];
@@ -186,7 +161,8 @@ export function createJobOrchestrator(
   renderVideo: RenderJobVideoFn = renderJobVideo,
   validateVideo: ValidateVideoFileFn = validateVideoFile,
   runQuality: RunQualityControlFn = runQualityControl,
-  youtube: YouTubeProvider = defaultYoutubeProvider
+  youtube: YouTubeProvider = defaultYoutubeProvider,
+  publicationState: RuntimeState = runtimeState
 ) {
   async function createJob(input: CreateJobInput): Promise<VideoJob> {
     const errors = validateCreateJobInput(input);
@@ -221,7 +197,8 @@ export function createJobOrchestrator(
     if (job.status !== "failed") {
       throw new ValidationError("Only a failed job can be retried.");
     }
-    return repo.updateJobStatus(id, "queued");
+    if (job.youtube?.status === "uncertain") throw new ValidationError("Reconcile the uncertain upload before retrying.");
+    return repo.updateJob(id, {status:"queued",attempts:0,nextAttemptAt:null});
   }
 
   async function getRecentFingerprints(excludeId: string): Promise<ContentFingerprint[]> {
@@ -270,6 +247,7 @@ export function createJobOrchestrator(
 
       return await repo.updateJob(job.id, {
         content: result.content,
+        voiceGeneration:null, videoRender:null, qualityReport:null,
         scriptProvider: result.provider,
         scriptModel: result.model ?? null,
         scriptGeneratedAt: result.generatedAt,
@@ -328,19 +306,6 @@ export function createJobOrchestrator(
       });
 
       // If Supabase is configured, upload the successfully generated audio files to Supabase Storage
-      if (result.allReady && isSupabaseConfigured()) {
-        for (const scene of result.scenes) {
-          if (scene.audio?.status === "ready" && scene.audio.path && fs.existsSync(scene.audio.path)) {
-            try {
-              const filename = path.basename(scene.audio.path);
-              const bucketPath = `${job.id}/audio/${filename}`;
-              await uploadToSupabaseBucket("voice-audio", scene.audio.path, bucketPath);
-            } catch (uploadErr) {
-              console.error(`[VidPilot] Failed to upload audio for scene ${scene.id} to Supabase: ${(uploadErr as Error).message}`);
-            }
-          }
-        }
-      }
 
       const nextStatus: JobStatus = result.allReady ? "voice_ready" : "failed";
       const provider = getVoiceById(job.voiceId)?.provider ?? "piper";
@@ -541,15 +506,7 @@ export function createJobOrchestrator(
         });
       }
 
-      let finalVideoPath = renderResult.finalVideoPath;
-      if (isSupabaseConfigured()) {
-        try {
-          const destination = `${job.id}/final.mp4`;
-          finalVideoPath = await uploadToSupabaseBucket("rendered-videos", renderResult.finalVideoPath, destination);
-        } catch (uploadErr) {
-          console.error(`[VidPilot] Failed to upload final video to Supabase Storage: ${(uploadErr as Error).message}`);
-        }
-      }
+      const finalVideoPath = renderResult.finalVideoPath;
 
       return await repo.updateJob(job.id, {
         content: { ...job.content, scenes },
@@ -570,12 +527,8 @@ export function createJobOrchestrator(
         },
         lastError: null,
         retryCount: job.retryCount + 1,
-        // A fresh render invalidates any prior Telegram approval — bumping
-        // renderVersion and clearing approval makes "an old approval
-        // message can't approve a newer render" true by construction, not
-        // just by a version-number check in the callback handler.
+        qualityReport: null,
         renderVersion: job.renderVersion + 1,
-        approval: null,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected error during video rendering.";
@@ -624,14 +577,14 @@ export function createJobOrchestrator(
 
     try {
       const report = await runQuality(job);
-      const passed = report.score >= 70;
+      const passed = report.status === "PASS";
 
       return await repo.updateJob(job.id, {
         qualityReport: report,
-        status: passed ? "ready" : "failed",
+        status: passed ? "qc_passed" : "failed",
         lastError: passed
           ? null
-          : `Quality check failed: ${report.failures.map((f) => f.message).join(" ") || "see quality report for details."}`,
+          : `Quality check failed: ${[...report.failures, ...report.warnings].map((f) => f.message).join(" ") || "see quality report for details."}`,
         retryCount: passed ? job.retryCount : job.retryCount + 1,
       });
     } catch (err) {
@@ -641,159 +594,6 @@ export function createJobOrchestrator(
     }
   }
 
-  /**
-   * Phase 10 — validates a job is eligible to be sent for Telegram
-   * approval and returns it. Pure guard, no Telegram I/O here (that lives
-   * in services/telegram/sendApproval.ts, which calls this first and only
-   * persists "sent" state after the provider call actually succeeds).
-   */
-  async function prepareApprovalSend(id: string): Promise<VideoJob> {
-    const job = await getJobOrThrow(id);
-    if (!APPROVAL_SEND_STATUSES.includes(job.status)) {
-      throw new ValidationError(`A job in "${job.status}" status is not eligible to send for approval.`);
-    }
-    if (job.telegramMessageId) {
-      throw new ValidationError("Telegram approval was already sent for this job — use Resend if you need a fresh message.");
-    }
-    if (!job.videoRender || job.videoRender.status !== "ready" || !job.videoRender.path) {
-      throw new ValidationError("This job has no rendered video to send for approval.");
-    }
-    if (job.videoRender.fileSizeBytes && job.videoRender.fileSizeBytes > TELEGRAM_MAX_VIDEO_BYTES) {
-      throw new ValidationError(
-        `This video is ${(job.videoRender.fileSizeBytes / (1024 * 1024)).toFixed(1)}MB, over Telegram's ${TELEGRAM_MAX_VIDEO_BYTES / (1024 * 1024)}MB bot upload limit.`
-      );
-    }
-    return job;
-  }
-
-  /** Manual resend only — job must still be awaiting a decision on the current render. */
-  async function prepareApprovalResend(id: string): Promise<VideoJob> {
-    const job = await getJobOrThrow(id);
-    if (!APPROVAL_RESEND_STATUSES.includes(job.status)) {
-      throw new ValidationError(`A job in "${job.status}" status cannot be resent for approval.`);
-    }
-    if (!job.approval || job.approval.status !== "sent" || job.approval.decision != null) {
-      throw new ValidationError("This job is not awaiting a Telegram decision — nothing to resend.");
-    }
-    if (!job.videoRender || job.videoRender.status !== "ready" || !job.videoRender.path) {
-      throw new ValidationError("This job has no rendered video to send for approval.");
-    }
-    if (job.videoRender.fileSizeBytes && job.videoRender.fileSizeBytes > TELEGRAM_MAX_VIDEO_BYTES) {
-      throw new ValidationError(
-        `This video is ${(job.videoRender.fileSizeBytes / (1024 * 1024)).toFixed(1)}MB, over Telegram's ${TELEGRAM_MAX_VIDEO_BYTES / (1024 * 1024)}MB bot upload limit.`
-      );
-    }
-    return job;
-  }
-
-  /** Only called after a real Telegram send succeeds — bumps the approval version so any earlier message becomes stale. */
-  async function recordApprovalSent(id: string, telegramMessageId: number): Promise<VideoJob> {
-    const job = await getJobOrThrow(id);
-    if (["approved", "uploading", "published"].includes(job.status)) {
-      throw new ValidationError(`Cannot record a Telegram send for a job already in "${job.status}" status.`);
-    }
-    if (job.approval?.decision === "approved" || job.approval?.decision === "rejected") {
-      throw new ValidationError("This job already has a Telegram approval decision — cannot send again.");
-    }
-    const nextVersion = (job.approval?.version ?? 0) + 1;
-    const approval: JobApproval = {
-      status: "sent",
-      version: nextVersion,
-      renderVersion: job.renderVersion,
-      sentAt: new Date().toISOString(),
-      decision: null,
-      reason: null,
-      decidedAt: null,
-      pendingReasonPromptMessageId: null,
-    };
-    return repo.updateJob(id, {
-      status: "awaiting_approval",
-      telegramMessageId: String(telegramMessageId),
-      approval,
-    });
-  }
-
-  // job.status and job.approval.status always transition together (see
-  // approveJob/rejectJob below), so once a decision has been made the job
-  // is no longer "awaiting_approval" — a duplicate tap is caught by that
-  // check alone, with no separate "already decided" state to detect.
-  function checkApprovalPreconditions(
-    job: VideoJob | null,
-    version: number
-  ): { ok: true; job: VideoJob; approval: JobApproval } | { ok: false; reason: ApprovalActionFailureReason } {
-    if (!job) return { ok: false, reason: "not_found" };
-    if (job.status !== "awaiting_approval" || !job.approval) return { ok: false, reason: "not_awaiting_approval" };
-    if (job.approval.version !== version) return { ok: false, reason: "stale_version" };
-    return { ok: true, job, approval: job.approval };
-  }
-
-  /** Records a real Telegram Approve tap. Idempotent/stale-safe via checkApprovalPreconditions — never throws on an expected control-flow case, so the caller (telegramUpdateHandler) can translate each `reason` into the right user-facing message. */
-  async function approveJob(id: string, version: number): Promise<ApprovalActionResult> {
-    const check = checkApprovalPreconditions(await repo.getJob(id), version);
-    if (!check.ok) return check;
-    const decidedAt = new Date().toISOString();
-    const job = await repo.updateJob(id, {
-      status: "approved",
-      approvedAt: decidedAt,
-      approval: { ...check.approval, status: "approved", decision: "approved", decidedAt },
-    });
-    return { ok: true, job };
-  }
-
-  /** Records that a Reject tap started a reason prompt — remembers the prompt's message id so a later free-text reply (or quick-reason tap) can be correlated back to this job. Does not change job.status yet; the job stays "awaiting_approval" until a reason is actually captured. */
-  async function recordPendingRejectionPrompt(id: string, version: number, promptMessageId: number): Promise<ApprovalActionResult> {
-    const check = checkApprovalPreconditions(await repo.getJob(id), version);
-    if (!check.ok) return check;
-    const job = await repo.updateJob(id, {
-      approval: { ...check.approval, pendingReasonPromptMessageId: promptMessageId },
-    });
-    return { ok: true, job };
-  }
-
-  /** Records a real Telegram Reject decision (quick-reason tap or free-text reply) with its reason. */
-  async function rejectJob(id: string, version: number, reason: string): Promise<ApprovalActionResult> {
-    const check = checkApprovalPreconditions(await repo.getJob(id), version);
-    if (!check.ok) return check;
-    const decidedAt = new Date().toISOString();
-    const job = await repo.updateJob(id, {
-      status: "rejected",
-      approval: {
-        ...check.approval,
-        status: "rejected",
-        decision: "rejected",
-        reason,
-        decidedAt,
-        pendingReasonPromptMessageId: null,
-      },
-    });
-    return { ok: true, job };
-  }
-
-  /**
-   * Correlates an incoming free-text Telegram reply back to a job. The Bot
-   * API gives no "conversation state" — only `reply_to_message.message_id`
-   * — so this scans jobs currently awaiting approval (a small, bounded set
-   * in this single-user, linear-pipeline app) for the one whose pending
-   * reason-prompt message id matches.
-   */
-  async function findJobAwaitingReasonReply(promptMessageId: number): Promise<VideoJob | null> {
-    const candidates = await repo.listJobs({ status: "awaiting_approval" });
-    return candidates.find((job) => job.approval?.pendingReasonPromptMessageId === promptMessageId) ?? null;
-  }
-
-  /**
-   * Phase 11 — the last pipeline step: a real `videos.insert` call via
-   * YouTubeProvider. Every precondition here reads from the job's own
-   * durable records (qualityReport, approval, videoRender), never from
-   * anything the caller supplies — the frontend can never force an
-   * approval, a QC pass, or a connected-channel state that isn't real.
-   * `approval.renderVersion !== job.renderVersion` specifically catches a
-   * fresh re-render that happened after approval (renderVideoForJob always
-   * clears `approval` on a new render, but this is defense-in-depth against
-   * that invariant ever drifting). Idempotency: a job that already has a
-   * real `videoId` refuses a second upload outright — the only way to
-   * publish again is a genuinely new job.
-   */
   async function uploadVideoForJob(id: string): Promise<VideoJob> {
     const job = await getJobOrThrow(id);
 
@@ -805,13 +605,8 @@ export function createJobOrchestrator(
     if (!UPLOAD_READY_STATUSES.includes(job.status)) {
       throw new ValidationError(`A job in "${job.status}" status cannot be uploaded to YouTube.`);
     }
-    if (job.approval?.status !== "approved" || job.approval.renderVersion !== job.renderVersion) {
-      throw new ValidationError(
-        "This job has not been approved for its current render — send it for Telegram approval first."
-      );
-    }
-    if (job.qualityReport?.status !== "PASS" && job.qualityReport?.status !== "WARN") {
-      throw new ValidationError("This job's quality report is not a PASS or WARN — YouTube upload requires a clean quality check.");
+    if (job.qualityReport?.status !== "PASS") {
+      throw new ValidationError("This job's quality report is not a PASS — YouTube upload requires a clean quality check.");
     }
     if (!job.videoRender || job.videoRender.status !== "ready" || !job.videoRender.path) {
       throw new ValidationError("This job has no rendered video to upload.");
@@ -823,21 +618,14 @@ export function createJobOrchestrator(
       throw new ValidationError("YouTube is not connected — connect your YouTube account first.");
     }
 
-    const uploadLockKey = `upload:${job.id}`;
-    const { SchedulerLock } = await import("../scheduler/schedulerLock.js");
-    const lock = new SchedulerLock();
-    const acquired = await lock.acquire(uploadLockKey);
-    if (!acquired) {
-      console.log(`[JobService] Upload lock already acquired for job ${job.id}. Skipping duplicate upload.`);
-      return job;
-    }
-
-    const videoPath = await ensureLocalVideoFile(job.id, job.videoRender.path);
+    const key = `publication:${job.id}`;
+    if (await publicationState.get(key)) throw new ValidationError("Publication already started or completed. Reconcile the recorded upload; do not re-upload.");
+    let videoPath: string;
     const expectedDuration = job.videoRender.durationSeconds ?? 0;
-
-    await repo.updateJobStatus(job.id, "uploading");
-
+    let contactedYoutube = false;
+    let claimed = false;
     try {
+      videoPath = await ensureLocalVideoFile(job.id, job.videoRender!.path!);
       // Never trust the stored videoRender metadata for the upload
       // decision, even though QC already re-probed this same file — a
       // real re-inspection of the actual bytes on disk right before the
@@ -849,18 +637,12 @@ export function createJobOrchestrator(
       }
 
       const metadata = buildYoutubeUploadMetadata(job);
+      claimed = await publicationState.claim(key, {status:"intent",createdAt:new Date().toISOString()});
+      if (!claimed) throw new ValidationError("Another worker has already started publication.");
+      await repo.updateJobStatus(job.id, "uploading");
+      contactedYoutube = true;
       const { videoId } = await youtube.uploadVideo({ filePath: videoPath, metadata });
-
-      let thumbnailStatus: YouTubeThumbnailUploadStatus = "not_uploaded";
-      if (job.thumbnail?.status === "ready" && job.thumbnail.path) {
-        try {
-          await youtube.uploadThumbnail(videoId, job.thumbnail.path);
-          thumbnailStatus = "uploaded";
-        } catch {
-          // A thumbnail failure never invalidates a successful video upload.
-          thumbnailStatus = "failed";
-        }
-      }
+      await publicationState.set(key, {status:"published",videoId,createdAt:new Date().toISOString()});
 
       const uploadedAt = new Date().toISOString();
       const updated = await repo.updateJob(job.id, {
@@ -871,7 +653,6 @@ export function createJobOrchestrator(
           status: "uploaded",
           uploadedAt,
           privacyStatus: metadata.privacyStatus,
-          thumbnailStatus,
           containsSyntheticMedia: metadata.containsSyntheticMedia,
           lastError: null,
         },
@@ -881,26 +662,12 @@ export function createJobOrchestrator(
         retryCount: job.retryCount + 1,
       });
 
-      // Cleanup the job's local processing workspace (storage/jobs/{jobId}) safely
-      try {
-        const workspacePath = path.join(config.rendering.storageDir, job.id);
-        if (fs.existsSync(workspacePath)) {
-          await fs.promises.rm(workspacePath, { recursive: true, force: true });
-          console.log(`[JobService] Cleaned up local workspace for job ${job.id}.`);
-        }
-      } catch (cleanupErr) {
-        console.warn(`[JobService] Failed to clean up local workspace for job ${job.id}:`, cleanupErr);
-      }
-
       return updated;
     } catch (err) {
-      // Release the upload lock so that it can be retried later
-      try {
-        await lock.release(uploadLockKey);
-      } catch (releaseErr) {
-        console.warn(`[JobService] Failed to release upload lock for job ${job.id}:`, releaseErr);
-      }
-
+      if (!claimed && err instanceof ValidationError) throw err;
+      const rejected=err instanceof YouTubeApiError&&["invalid_grant","not_connected","quota_exceeded"].includes(err.reason);
+      const uncertain=contactedYoutube&&!rejected;
+      if (claimed && !uncertain) await publicationState.remove(key);
       const message = err instanceof Error ? err.message : "Unexpected error during YouTube upload.";
       await repo.updateJob(job.id, {
         status: "failed",
@@ -908,16 +675,15 @@ export function createJobOrchestrator(
         youtube: {
           videoId: null,
           url: null,
-          status: "failed",
+          status: uncertain ? "uncertain" : "failed",
           uploadedAt: null,
           privacyStatus: job.youtubeVisibility,
-          thumbnailStatus: "not_uploaded",
           containsSyntheticMedia: true,
           lastError: message,
         },
         retryCount: job.retryCount + 1,
       });
-      throw new HttpError(502, YOUTUBE_UPLOAD_FAILURE_MESSAGE);
+      throw new HttpError(502, `${YOUTUBE_UPLOAD_FAILURE_MESSAGE} ${message}${uncertain ? " Upload outcome is uncertain; automatic retry is blocked." : ""}`);
     }
   }
 
@@ -936,13 +702,6 @@ export function createJobOrchestrator(
     regenerateVisualsForScene,
     renderVideoForJob,
     runQualityCheckForJob,
-    prepareApprovalSend,
-    prepareApprovalResend,
-    recordApprovalSent,
-    approveJob,
-    recordPendingRejectionPrompt,
-    rejectJob,
-    findJobAwaitingReasonReply,
     uploadVideoForJob,
   };
 }
@@ -963,11 +722,4 @@ export const regenerateVoiceForScene = defaultOrchestrator.regenerateVoiceForSce
 export const regenerateVisualsForScene = defaultOrchestrator.regenerateVisualsForScene;
 export const renderVideoForJob = defaultOrchestrator.renderVideoForJob;
 export const runQualityCheckForJob = defaultOrchestrator.runQualityCheckForJob;
-export const prepareApprovalSend = defaultOrchestrator.prepareApprovalSend;
-export const prepareApprovalResend = defaultOrchestrator.prepareApprovalResend;
-export const recordApprovalSent = defaultOrchestrator.recordApprovalSent;
-export const approveJob = defaultOrchestrator.approveJob;
-export const recordPendingRejectionPrompt = defaultOrchestrator.recordPendingRejectionPrompt;
-export const rejectJob = defaultOrchestrator.rejectJob;
-export const findJobAwaitingReasonReply = defaultOrchestrator.findJobAwaitingReasonReply;
 export const uploadVideoForJob = defaultOrchestrator.uploadVideoForJob;
