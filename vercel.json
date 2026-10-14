@@ -1,5 +1,5 @@
 {
-  "installCommand": "npm ci --prefix frontend",
+  "installCommand": "npx --yes npm@11.6.2 ci --prefix frontend",
   "buildCommand": "npm --prefix frontend run build",
   "outputDirectory": "frontend/dist",
   "framework": "vite",
